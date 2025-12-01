@@ -1,0 +1,95 @@
+steps:
+  # 1. Build Client Image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:${SHORT_SHA}',
+           '-t', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:latest', './client']
+    id: 'Build Client'
+
+  # 2. Build Server Image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server:${SHORT_SHA}',
+           '-t', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server:latest', './server']
+    id: 'Build Server'
+
+  # 3. Push Client Images to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client']
+    id: 'Push Client'
+    waitFor: ['Build Client']
+
+  # 4. Push Server Images to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server']
+    id: 'Push Server'
+    waitFor: ['Build Server']
+
+  # 5. Terraform Init
+  - name: 'hashicorp/terraform:1.5.7'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        cd infrastructure
+        terraform init -backend-config="bucket=${PROJECT_ID}-tf-state"
+    id: 'Terraform Init'
+    waitFor: ['Push Client', 'Push Server']
+
+  # 6. Terraform Plan
+  - name: 'hashicorp/terraform:1.5.7'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        cd infrastructure
+        terraform plan -out=tfplan \
+          -var="project_id=${PROJECT_ID}" \
+          -var="region=${_REGION}" \
+          -var="zone=${_ZONE}" \
+          -var="github_owner=${_GITHUB_OWNER}" \
+          -var="github_repo=${_GITHUB_REPO}"
+    id: 'Terraform Plan'
+    waitFor: ['Terraform Init']
+
+  # 7. Terraform Apply
+  - name: 'hashicorp/terraform:1.5.7'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        cd infrastructure
+        terraform apply -auto-approve tfplan
+    id: 'Terraform Apply'
+    waitFor: ['Terraform Plan']
+
+  # 8. Update running containers on VM (if VM already exists)
+  - name: 'gcr.io/cloud-builders/gcloud'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        # Check if VM exists and is running
+        VM_STATUS=$(gcloud compute instances describe terrier-connect-vm --zone=${_ZONE} --format='value(status)' 2>/dev/null || echo "NOT_FOUND")
+        if [ "$$VM_STATUS" = "RUNNING" ]; then
+          echo "Updating containers on existing VM..."
+          gcloud compute ssh terrier-connect-vm --zone=${_ZONE} --command="cd /opt/terrier-connect && docker compose pull && docker compose up -d"
+        else
+          echo "VM not running or not found, skipping container update"
+        fi
+    id: 'Update Containers'
+    waitFor: ['Terraform Apply']
+
+substitutions:
+  _REGION: us-central1
+  _ZONE: us-central1-a
+  _GITHUB_OWNER: eth-ts-x
+  _GITHUB_REPO: terrier-connect
+
+images:
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:${SHORT_SHA}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:latest'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server:${SHORT_SHA}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'
