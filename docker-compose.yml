@@ -13,11 +13,12 @@ services:
     # Need to customize the nginx config for production
     volumes:
       - ./client/nginx_conf/nginx_prod.conf:/etc/nginx/nginx.conf
+    networks:
+      - tc-network
 
   server:
     build:
       context: ./server
-    command: gunicorn terrierconnect.wsgi:application --bind 0.0.0.0:8000
     image: server-tc
     container_name: server
     ports:
@@ -28,21 +29,29 @@ services:
       - ./server:/app
     environment:
       - DEBUG=1
-    # depends_on:
-    #   - db
+    depends_on:
+      - db
+    networks:
+      - tc-network
 
 # Currently can use dev DB, don't commit the password to the repo
-#   db:
-#     image: postgres:17
-#     environment:
-#       - POSTGRES_USER=postgres
-#       - POSTGRES_PASSWORD=
-#       - POSTGRES_DB=terrier-connect-dev
-#     ports:
-#       - "5432:5432"
-#     volumes:
-#       - db_data:/var/lib/postgresql/data
-#     restart: unless-stopped
+  db:
+    image: postgres:17
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=
+      - POSTGRES_DB=terrier-connect-dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - tc-network
 
-# volumes:
-#   db_data:
+volumes:
+  db_data:
+
+networks:
+  tc-network:
+    driver: bridge

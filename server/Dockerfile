@@ -27,6 +27,13 @@ RUN python manage.py collectstatic --noinput
 # Expose the port on which Django/Gunicorn will listen.
 EXPOSE 8000
 
+# Copy entrypoint script and set permissions
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Use entrypoint script to automate migrations
+ENTRYPOINT ["/entrypoint.sh"]
+
 # Run the Django development server or Gunicorn in production.
 # For local development/testing, you might use `python manage.py runserver 0.0.0.0:8000`
 # For production, we recommend Gunicorn:
