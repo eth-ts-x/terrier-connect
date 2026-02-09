@@ -22,10 +22,10 @@ from django.conf.urls.static import static
 
 # Include the URLs from the apps' urls.py files
 urlpatterns = [
-    path("admin/", admin.site.urls),
-    path('hashtags/', include('hashtags.urls')),
-    path('users/', include('users.urls')),
-    path('posts/', include('posts.urls'))
+    path('api/admin/', admin.site.urls),
+    path('api/hashtags/', include('hashtags.urls')),
+    path('api/users/', include('users.urls')),
+    path('api/posts/', include('posts.urls'))
 ]
 
 if settings.DEBUG:

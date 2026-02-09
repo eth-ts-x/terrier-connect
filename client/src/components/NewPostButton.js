@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import axios from "axios";
 import {
   Modal,
   Box,
@@ -15,6 +14,7 @@ import {
 } from "@mui/material";
 import { Close } from "@mui/icons-material";
 import MapView from "./MapSelection";
+import { addPost } from "../services/postService";
 
 const NewPostModal = ({ open, handleClose }) => {
   const [formData, setFormData] = useState({
@@ -88,18 +88,8 @@ const NewPostModal = ({ open, handleClose }) => {
 
     try {
       console.log("Image:", data.image_url);
-      const response = await axios.post(
-        "http://localhost:8000/posts/add_post/",
-        data,
-        {
-          headers: {
-            "Authorization": token,
-            "Content-Type": "multipart/form-data",
-          },
-        }
-      );
-
-      console.log("Post created successfully:", response.data);
+      const response = await addPost(data);
+      console.log("Post created successfully:", response);
       setSuccessMessage(true);
       setFormData({
         title: "",

@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import axios from "axios";
 import {
   Box,
   TextField,
@@ -9,6 +8,7 @@ import {
   CircularProgress,
 } from "@mui/material";
 import { useNavigate } from "react-router-dom";
+import { changePassword } from "../services/userService";
 
 const ChangePassword = () => {
   const [form, setForm] = useState({
@@ -45,21 +45,7 @@ const ChangePassword = () => {
     formData.append("confirmPassword", form.confirmPassword);
 
     try {
-      const token = localStorage.getItem("token");
-      if (!token) {
-        throw new Error("No token found. Please log in.");
-      }
-
-      const response = await axios.put(
-        "http://localhost:8000/users/change_password/",
-        formData,
-        {
-          headers: {
-            Authorization: token,
-            "Content-Type": "multipart/form-data",
-          },
-        }
-      );
+      await changePassword(formData);
       alert("Password changed successfully!");
       navigate("/profile/me"); // Redirect back to the profile page
     } catch (err) {

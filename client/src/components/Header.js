@@ -23,7 +23,7 @@ import NotificationsIcon from "@mui/icons-material/Notifications";
 import MoreIcon from "@mui/icons-material/MoreVert";
 import NewPostModal from "./NewPostButton";
 import SearchBar from "./SearchBar";
-import axios from "axios";
+import { getPopularHashtags } from "../services/hashtagService";
 
 export default function PrimarySearchAppBar() {
   const [anchorEl, setAnchorEl] = useState(null);
@@ -39,18 +39,8 @@ export default function PrimarySearchAppBar() {
   // Fetch popular tags
   const fetchTags = async () => {
     try {
-      const token = localStorage.getItem("token"); // Get token from localStorage
-      const response = await axios.get(
-        "http://localhost:8000/hashtags/get_popular_hashtags/?page=1&pageSize=10",
-        {
-          headers: {
-            Authorization: token,
-          },
-        }
-      );
-
-      // Update tags with the response data
-      setTags(response.data.results); // Access the 'results' array directly
+      const response = await getPopularHashtags({ page: 1, pageSize: 10 });
+      setTags(response.results);
     } catch (error) {
       console.error("Error fetching tags:", error);
     }

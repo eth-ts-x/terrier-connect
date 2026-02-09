@@ -17,12 +17,13 @@ import AddCommentIcon from "@mui/icons-material/AddComment";
 import DeleteIcon from "@mui/icons-material/Delete";
 import {
   getPostDetail,
-  getUserDetail,
   getComments,
   submitComment,
   deletePost,
-  getPostHashtags,
-} from "../../services/apiService.js.js";
+} from "../../services/postService";
+import { getUserDetail } from "../../services/userService";
+import { getPostHashtagsByPostId } from "../../services/hashtagService";
+import { resolveMediaUrl } from "../../services/apiClient";
 import { postBoxStyle, commentStyle } from "./postStyles.js";
 import EditPost from "./editpost.js";
 import MapView from "./Map.js";
@@ -57,11 +58,19 @@ const PostWithID = () => {
       const userDetail = await getUserDetail(postDetail.author);
       setAuthor(userDetail);
 
-      const commentsData = await getComments(id);
-      setComments(commentsData);
+      const commentsData = await getComments(id, {
+        page: 1,
+        pageSize: 10,
+        orderBy: "create_time",
+      });
+      setComments(commentsData.results || commentsData);
 
-      const tagTexts = await getPostHashtags(id);
-      setTags(tagTexts);
+      const tagResponse = await getPostHashtagsByPostId(id, {
+        page: 1,
+        pageSize: 20,
+      });
+      const tagList = tagResponse.results || tagResponse;
+      setTags(Array.isArray(tagList) ? tagList.map((tag) => tag.hashtag_text) : []);
     } catch (err) {
       console.error("Error fetching data:", err);
       setError("Unable to load data! ");
@@ -86,8 +95,12 @@ const PostWithID = () => {
       setOpen(false);
 
       // Update the comments
-      const commentsData = await getComments(id);
-      setComments(commentsData);
+      const commentsData = await getComments(id, {
+        page: 1,
+        pageSize: 10,
+        orderBy: "create_time",
+      });
+      setComments(commentsData.results || commentsData);
     } catch (err) {
       console.error("Error submitting comment:", err);
       alert("Comment submission failed, please try again later.");
@@ -102,8 +115,12 @@ const PostWithID = () => {
       setReplyOpen(false);
 
       // update the comments
-      const commentsData = await getComments(id);
-      setComments(commentsData);
+      const commentsData = await getComments(id, {
+        page: 1,
+        pageSize: 10,
+        orderBy: "create_time",
+      });
+      setComments(commentsData.results || commentsData);
     } catch (error) {
       console.error("Error submitting reply:", error);
       alert("Reply Submission failed, please try again later.");
@@ -155,7 +172,7 @@ const PostWithID = () => {
               }}
               src={
                 userMap[reply.author]?.avatar_url
-                  ? `http://localhost:8000${userMap[reply.author]?.avatar_url}`
+                    ? resolveMediaUrl(userMap[reply.author]?.avatar_url)
                   : ""
               }
               alt={userMap[reply.author]?.display_name || "User"}
@@ -235,7 +252,7 @@ const PostWithID = () => {
               }}
               src={
                 userMap[comment.author]?.avatar_url
-                  ? `http://localhost:8000${userMap[comment.author]?.avatar_url}`
+                    ? resolveMediaUrl(userMap[comment.author]?.avatar_url)
                   : ""
               }
               alt={userMap[comment.author]?.display_name || "User"}
@@ -339,7 +356,7 @@ const PostWithID = () => {
                     boxShadow: "0 0 10px rgba(0, 0, 0, 0.3)", // Optional: Add shadow for hover effect
                   },
                 }}
-                src={`http://localhost:8000${author.avatar_url}`}
+                src={resolveMediaUrl(author.avatar_url)}
                 onClick={() => navigate(`/profile/${author.id}`)} // Add navigate function
                 alt={author.display_name}
               />
@@ -361,7 +378,7 @@ const PostWithID = () => {
               {post.image_url && (
           <Box
             component="img"
-            src={`http://localhost:8000${post.image_url}`}
+            src={resolveMediaUrl(post.image_url)}
             alt="Post Image"
             sx={{
               width: "100%",

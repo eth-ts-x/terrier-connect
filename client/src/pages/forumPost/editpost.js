@@ -2,8 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Box, TextField, Button, Modal, Grid, Chip, Typography, Snackbar, Alert, Fab } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
 import { Close } from "@mui/icons-material";
-import { getPostDetail } from "../../services/apiService.js";
-import { updatePost } from "../../services/apiService.js";
+import { getPostDetail, updatePost } from "../../services/postService";
 
 const EditPost = ({ postId, onPostUpdated  }) => {
   const [open, setOpen] = useState(false);

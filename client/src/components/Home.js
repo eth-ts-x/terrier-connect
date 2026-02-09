@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import axios from "axios";
 import {
   Box,
   Typography,
@@ -14,6 +13,7 @@ import {
   Divider,
 } from "@mui/material";
 import { useNavigate } from "react-router-dom";
+import { listPosts } from "../services/postService";
 
 const Home = () => {
   const [posts, setPosts] = useState([]); // State to store posts
@@ -28,19 +28,14 @@ const Home = () => {
   const fetchPosts = async (page, following = false) => {
     setLoading(true);
     setError(null);
-    const token = localStorage.getItem("token");
-    const url = following
-      ? `http://localhost:8000/posts/list_posts/?page=${page}&pageSize=10&flag=following`
-      : `http://localhost:8000/posts/list_posts/?page=${page}&pageSize=10`;
-
     try {
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: token,
-        },
+      const response = await listPosts({
+        page,
+        pageSize: 10,
+        ...(following ? { flag: "following" } : {}),
       });
-      setPosts(response.data.results);
-      setTotalPages(response.data.totalPages);
+      setPosts(response.results);
+      setTotalPages(response.totalPages);
     } catch (err) {
       setError("Failed to fetch posts. Please try again.");
       console.error(err);

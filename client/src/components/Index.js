@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import axios from "axios";
 import {
   Box,
   Typography,
@@ -12,6 +11,8 @@ import {
   DialogActions,
 } from "@mui/material";
 import { useNavigate } from "react-router-dom"; // Import useNavigate
+import { login, register } from "../services/authService";
+import { resolveMediaUrl } from "../services/apiClient";
 
 const Index = () => {
   const [openRegister, setOpenRegister] = useState(false);
@@ -54,20 +55,20 @@ const Index = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await axios.post("http://localhost:8000/users/login", {
+      const response = await login({
         email: loginForm.email,
         password: loginForm.password,
       });
 
       // Extract token and user information from the response
-      const { token, user } = response.data;
+      const { token, user } = response;
 
       // Save user data to localStorage
       localStorage.setItem("token", token);
       localStorage.setItem("user", JSON.stringify(user));
       localStorage.setItem("userId", user.id); // Save user ID to localStorage
 
-      console.log("Login successful:", response.data);
+      console.log("Login successful:", response);
 
       // Update user state
       setUser(user);
@@ -97,16 +98,8 @@ const Index = () => {
     }
 
     try {
-      const response = await axios.post(
-        "http://localhost:8000/users/register",
-        formData,
-        {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-        }
-      );
-      console.log("Registration Success:", response.data);
+      const response = await register(formData);
+      console.log("Registration Success:", response);
       alert("Registration successful!");
       handleRegisterClose(); // Close dialog after successful registration
     } catch (err) {
@@ -222,7 +215,7 @@ const Index = () => {
                 Email: {user.email}
               </Typography>
               <img
-                src={`http://localhost:8000${user.avatar_url}`}
+                src={resolveMediaUrl(user.avatar_url)}
                 alt="User Avatar"
                 style={{ width: "100px", height: "100px", borderRadius: "50%" }}
               />

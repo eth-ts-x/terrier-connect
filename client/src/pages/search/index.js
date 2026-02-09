@@ -16,7 +16,7 @@ import {
   Stack,
 } from "@mui/material";
 import { useNavigate, useLocation } from "react-router-dom";
-import axios from "axios";
+import { listPostsByTag, fullTextSearch } from "../../services/searchService";
 
 const PostSearch = () => {
   const [searchResults, setSearchResults] = useState([]);
@@ -49,18 +49,19 @@ const PostSearch = () => {
     try {
       let response;
       if (searchType === "tag") {
-        response = await axios.get("http://localhost:8000/posts/list_posts_by_tag/", {
-          params: { tag: query, page, pageSize },
-        });
+        response = await listPostsByTag({ tag: query, page, pageSize });
       
       } else if (searchType === "keyword") {
-        response = await axios.get("http://localhost:8000/posts/full_text_search/", {
-          params: { query, page, pageSize, orderBy: "-create_time" },
+        response = await fullTextSearch({
+          query,
+          page,
+          pageSize,
+          orderBy: "-create_time",
         });
       }
 
-      setSearchResults(response.data.results);
-      setTotalPages(response.data.totalPages);
+      setSearchResults(response.results);
+      setTotalPages(response.totalPages);
       setError(null); // Clear previous errors
     } catch (err) {
       console.error("Error fetching search results:", err);

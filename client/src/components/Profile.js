@@ -18,7 +18,15 @@ import {
   Divider,
 } from "@mui/material";
 import { Edit as EditIcon, Email as EmailIcon } from "@mui/icons-material";
-import axios from "axios";
+import { resolveMediaUrl } from "../services/apiClient";
+import {
+  getUserDetail,
+  getFollowing,
+  getFollowers,
+  followUser,
+  unfollowUser,
+} from "../services/userService";
+import { listPosts, getCommentsByAuthor } from "../services/postService";
 
 function TabPanel({ children, value, index, ...other }) {
   return (
@@ -56,7 +64,6 @@ export default function Profile() {
 
   // Get the logged-in user's id for comparison
   const loggedInUserId = parseInt(localStorage.getItem("userId"), 10);
-  const token = localStorage.getItem("token"); // Retrieve token from localStorage
 
   useEffect(() => {
     if (!userId || isNaN(userId)) {
@@ -68,30 +75,16 @@ export default function Profile() {
     const fetchUserData = async () => {
       try {
         // Fetch the user data
-        const userResponse = await axios.get(
-          `http://localhost:8000/users/user/${userId}/`,
-          {
-            headers: {
-              Authorization: token,
-            },
-          }
-        );
-        setUser(userResponse.data.user);
+        const userData = await getUserDetail(userId);
+        setUser(userData);
 
         // Fetch the following list only if viewing another user's profile
         if (userId !== loggedInUserId) {
-          const followingResponse = await axios.get(
-            `http://localhost:8000/users/${loggedInUserId}/following/`,
-            {
-              headers: {
-                Authorization: token,
-              },
-            }
-          );
-          setFollowingList(followingResponse.data.results);
+          const followingResponse = await getFollowing(loggedInUserId);
+          setFollowingList(followingResponse.results || []);
 
           // Check if the target user is in the following list
-          const isFollowingUser = followingResponse.data.results.some(
+          const isFollowingUser = (followingResponse.results || []).some(
             (followedUser) => followedUser.id === userId
           );
           setIsFollowing(isFollowingUser);
@@ -105,19 +98,17 @@ export default function Profile() {
     };
 
     fetchUserData();
-  }, [userId, loggedInUserId, navigate, token]);
+  }, [userId, loggedInUserId, navigate]);
 
   useEffect(() => {
     const fetchComments = async () => {
       try {
-        const token = localStorage.getItem("token");
-        const response = await axios.get(
-          `http://localhost:8000/posts/comments/authors/${userId}/?page=1&pageSize=10&orderBy=-create_time`,
-          {
-            headers: { Authorization: token },
-          }
-        );
-        setComments(response.data.results);
+        const response = await getCommentsByAuthor(userId, {
+          page: 1,
+          pageSize: 10,
+          orderBy: "-create_time",
+        });
+        setComments(response.results);
       } catch (err) {
         console.error("Error fetching comments:", err);
       }
@@ -125,15 +116,9 @@ export default function Profile() {
 
     const fetchPosts = async () => {
       try {
-        const token = localStorage.getItem("token");
-        const response = await axios.get(
-          `http://localhost:8000/posts/list_posts/`,
-          {
-            headers: { Authorization: token },
-          }
-        );
+        const response = await listPosts();
         setPosts(
-          response.data.results.filter((post) => post.author === userId)
+          (response.results || []).filter((post) => post.author === userId)
         );
       } catch (err) {
         console.error("Error fetching posts:", err);
@@ -142,14 +127,8 @@ export default function Profile() {
 
     const fetchFollowing = async () => {
       try {
-        const token = localStorage.getItem("token");
-        const response = await axios.get(
-          `http://localhost:8000/users/${userId}/following/?page=1&pageSize=10`,
-          {
-            headers: { Authorization: token },
-          }
-        );
-        setFollowing(response.data.results);
+        const response = await getFollowing(userId, { page: 1, pageSize: 10 });
+        setFollowing(response.results || []);
       } catch (err) {
         console.error("Error fetching following:", err);
       }
@@ -157,14 +136,8 @@ export default function Profile() {
 
     const fetchFollowers = async () => {
       try {
-        const token = localStorage.getItem("token");
-        const response = await axios.get(
-          `http://localhost:8000/users/${userId}/followers/?page=1&pageSize=10`,
-          {
-            headers: { Authorization: token },
-          }
-        );
-        setFollowers(response.data.results);
+        const response = await getFollowers(userId, { page: 1, pageSize: 10 });
+        setFollowers(response.results || []);
       } catch (err) {
         console.error("Error fetching followers:", err);
       }
@@ -178,13 +151,7 @@ export default function Profile() {
 
   const handleFollow = async () => {
     try {
-      const response = await axios.post(
-        `http://localhost:8000/users/${userId}/follow/`,
-        {},
-        {
-          headers: { Authorization: token },
-        }
-      );
+      await followUser(userId);
       setIsFollowing(true); // Update follow state
     } catch (err) {
       console.error("Error following user:", err);
@@ -194,12 +161,7 @@ export default function Profile() {
 
   const handleUnfollow = async () => {
     try {
-      const response = await axios.delete(
-        `http://localhost:8000/users/${userId}/unfollow/`,
-        {
-          headers: { Authorization: token },
-        }
-      );
+      await unfollowUser(userId);
       setIsFollowing(false); // Update follow state
     } catch (err) {
       console.error("Error unfollowing user:", err);
@@ -239,7 +201,7 @@ export default function Profile() {
             >
               <Avatar
                 sx={{ width: 200, height: 200, mb: 2 }}
-                src={`http://localhost:8000${user.avatar_url}`}
+                src={resolveMediaUrl(user.avatar_url)}
                 alt={user.display_name}
               />
               <Typography variant="h5" gutterBottom>
@@ -366,7 +328,7 @@ export default function Profile() {
                       >
                         <ListItemAvatar>
                           <Avatar
-                            src={`http://localhost:8000${follow.avatar_url}`}
+                            src={resolveMediaUrl(follow.avatar_url)}
                             alt={follow.display_name}
                           />
                         </ListItemAvatar>
@@ -397,7 +359,7 @@ export default function Profile() {
                       >
                         <ListItemAvatar>
                           <Avatar
-                            src={`http://localhost:8000${follower.avatar_url}`}
+                            src={resolveMediaUrl(follower.avatar_url)}
                             alt={follower.display_name}
                           />
                         </ListItemAvatar>

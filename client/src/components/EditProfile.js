@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import axios from "axios";
 import {
   Box,
   TextField,
@@ -9,6 +8,7 @@ import {
   CircularProgress,
 } from "@mui/material";
 import { useNavigate } from "react-router-dom";
+import { getUserDetail, updateProfile } from "../services/userService";
 
 const EditProfile = () => {
   const [form, setForm] = useState({
@@ -35,18 +35,13 @@ const EditProfile = () => {
       }
 
       try {
-        const response = await axios.get(
-          `http://localhost:8000/users/user/${userId}/`,
-          {
-            headers: { Authorization: token },
-          }
-        );
-        setUser(response.data.user);
+        const userData = await getUserDetail(userId);
+        setUser(userData);
         setForm((prevForm) => ({
           ...prevForm,
-          displayName: response.data.user.display_name,
-          bio: response.data.user.bio || "",
-          email: response.data.user.email,
+          displayName: userData.display_name,
+          bio: userData.bio || "",
+          email: userData.email,
         }));
       } catch (err) {
         console.error("Error fetching user data:", err);
@@ -85,17 +80,7 @@ const EditProfile = () => {
     }
 
     try {
-      const token = localStorage.getItem("token");
-      const response = await axios.put(
-        "http://localhost:8000/users/update_profile/",
-        formData,
-        {
-          headers: {
-            Authorization: token,
-            "Content-Type": "multipart/form-data",
-          },
-        }
-      );
+      await updateProfile(formData);
       alert("Profile updated successfully!");
       navigate("/profile/me"); // Redirect back to the profile page
     } catch (err) {
