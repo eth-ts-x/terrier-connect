@@ -1,7 +1,24 @@
-project_id   = "your-gcp-project-id"
-region       = "us-central1"
-zone         = "us-central1-a"
-machine_type = "e2-medium"
-instance_name = "terrier-connect-vm"
-github_owner = "eth-ts-x"
-github_repo  = "terrier-connect"
+project_id = "your-gcp-project-id"
+region     = "us-central1"
+zone       = "us-central1-a"
+
+gke_cluster_name     = "terrier-connect-gke"
+gke_node_machine_type = "e2-medium"
+gke_node_count       = 2
+
+cloudsql_instance_name     = "terrier-connect-db"
+cloudsql_tier              = "db-f1-micro"
+cloudsql_availability_type = "ZONAL"
+db_name                     = "terrier-connect-prod"
+db_user                     = "appuser"
+db_password                 = "CHANGE_ME"
+
+media_bucket_name   = "terrier-connect-media"
+media_bucket_public = true
+
+domain_name   = "example.com"
+dns_zone_name = "terrier-connect-zone"
+
+lb_ip_name            = "terrier-connect-ip"
+k8s_namespace         = "default"
+gke_workload_sa_name  = "terrier-connect-gke-sa"

@@ -1,15 +1,3 @@
-output "instance_name" {
-  value = google_compute_instance.vm_instance.name
-}
-
-output "public_ip" {
-  value = google_compute_address.static_ip.address
-}
-
-output "connection_command" {
-  value = "gcloud compute ssh ${google_compute_instance.vm_instance.name} --zone=${var.zone}"
-}
-
 output "artifact_registry_url" {
   description = "Artifact Registry repository URL"
   value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.repo.repository_id}"
@@ -30,17 +18,37 @@ output "terraform_state_bucket" {
   value       = google_storage_bucket.tf_state.name
 }
 
-output "vm_service_account" {
-  description = "Service account used by the VM"
-  value       = google_service_account.vm_service_account.email
+output "gke_cluster_name" {
+  description = "GKE cluster name"
+  value       = google_container_cluster.gke.name
 }
 
-output "app_url" {
-  description = "Application URL"
-  value       = "http://${google_compute_address.static_ip.address}:3002"
+output "gke_region" {
+  description = "GKE cluster region"
+  value       = var.region
 }
 
-output "api_url" {
-  description = "API URL"
-  value       = "http://${google_compute_address.static_ip.address}:8000"
+output "cloudsql_connection_name" {
+  description = "Cloud SQL instance connection name"
+  value       = google_sql_database_instance.db.connection_name
+}
+
+output "media_bucket_name" {
+  description = "GCS bucket for media"
+  value       = google_storage_bucket.media.name
+}
+
+output "gke_workload_service_account" {
+  description = "GCP service account for Workload Identity"
+  value       = google_service_account.gke_workload.email
+}
+
+output "ingress_ip_address" {
+  description = "Global static IP for Ingress"
+  value       = google_compute_global_address.lb_ip.address
+}
+
+output "domain_name" {
+  description = "Root domain"
+  value       = var.domain_name
 }

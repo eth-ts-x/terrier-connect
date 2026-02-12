@@ -45,8 +45,9 @@ steps:
           -var="project_id=${PROJECT_ID}" \
           -var="region=${_REGION}" \
           -var="zone=${_ZONE}" \
-          -var="github_owner=${_GITHUB_OWNER}" \
-          -var="github_repo=${_GITHUB_REPO}"
+          -var="domain_name=${_DOMAIN_NAME}" \
+          -var="dns_zone_name=${_DNS_ZONE_NAME}" \
+          -var="db_password=${_DB_PASSWORD}"
     id: 'Terraform Plan'
     waitFor: ['Terraform Init']
 
@@ -61,28 +62,73 @@ steps:
     id: 'Terraform Apply'
     waitFor: ['Terraform Plan']
 
-  # 8. Update running containers on VM (if VM already exists)
+  # 8. Configure kubectl to talk to GKE
   - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        # Check if VM exists and is running
-        VM_STATUS=$(gcloud compute instances describe terrier-connect-vm --zone=${_ZONE} --format='value(status)' 2>/dev/null || echo "NOT_FOUND")
-        if [ "$$VM_STATUS" = "RUNNING" ]; then
-          echo "Updating containers on existing VM..."
-          gcloud compute ssh terrier-connect-vm --zone=${_ZONE} --command="cd /opt/terrier-connect && docker compose pull && docker compose up -d"
-        else
-          echo "VM not running or not found, skipping container update"
-        fi
-    id: 'Update Containers'
+        gcloud container clusters get-credentials ${_CLUSTER_NAME} --region ${_REGION}
+    id: 'Get GKE Credentials'
     waitFor: ['Terraform Apply']
+
+  # 9. Deploy Kubernetes manifests (prod overlay)
+  - name: 'gcr.io/cloud-builders/kubectl'
+    args: ['apply', '-k', 'k8s/overlays/prod']
+    env:
+      - 'CLOUDSDK_COMPUTE_REGION=${_REGION}'
+      - 'CLOUDSDK_CONTAINER_CLUSTER=${_CLUSTER_NAME}'
+    id: 'Kustomize Apply'
+    waitFor: ['Get GKE Credentials']
+
+  # 10. Update images to current build
+  - name: 'gcr.io/cloud-builders/kubectl'
+    args:
+      - 'set'
+      - 'image'
+      - 'deployment/server'
+      - 'server=${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server:${SHORT_SHA}'
+    env:
+      - 'CLOUDSDK_COMPUTE_REGION=${_REGION}'
+      - 'CLOUDSDK_CONTAINER_CLUSTER=${_CLUSTER_NAME}'
+    id: 'Update Server Image'
+    waitFor: ['Kustomize Apply']
+
+  - name: 'gcr.io/cloud-builders/kubectl'
+    args:
+      - 'set'
+      - 'image'
+      - 'deployment/client'
+      - 'client=${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:${SHORT_SHA}'
+    env:
+      - 'CLOUDSDK_COMPUTE_REGION=${_REGION}'
+      - 'CLOUDSDK_CONTAINER_CLUSTER=${_CLUSTER_NAME}'
+    id: 'Update Client Image'
+    waitFor: ['Kustomize Apply']
+
+  - name: 'gcr.io/cloud-builders/kubectl'
+    args: ['rollout', 'status', 'deployment/server']
+    env:
+      - 'CLOUDSDK_COMPUTE_REGION=${_REGION}'
+      - 'CLOUDSDK_CONTAINER_CLUSTER=${_CLUSTER_NAME}'
+    id: 'Rollout Server'
+    waitFor: ['Update Server Image']
+
+  - name: 'gcr.io/cloud-builders/kubectl'
+    args: ['rollout', 'status', 'deployment/client']
+    env:
+      - 'CLOUDSDK_COMPUTE_REGION=${_REGION}'
+      - 'CLOUDSDK_CONTAINER_CLUSTER=${_CLUSTER_NAME}'
+    id: 'Rollout Client'
+    waitFor: ['Update Client Image']
 
 substitutions:
   _REGION: us-central1
   _ZONE: us-central1-a
-  _GITHUB_OWNER: eth-ts-x
-  _GITHUB_REPO: terrier-connect
+  _CLUSTER_NAME: terrier-connect-gke
+  _DOMAIN_NAME: example.com
+  _DNS_ZONE_NAME: terrier-connect-zone
+  _DB_PASSWORD: CHANGE_ME
 
 images:
   - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:${SHORT_SHA}'
