@@ -2,6 +2,13 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: app-config
+  labels:
+    app: terrier-connect
+  annotations:
+    environment: local
+    owner: terrier-connect
+    managed-by: k8s
+    description: "Local development configuration for Django + React"
 data:
   DB_NAME: terrier-connect-dev
   DB_USER: postgres
@@ -14,9 +21,16 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: app-secrets
+  labels:
+    app: terrier-connect
+  annotations:
+    environment: local
+    owner: terrier-connect
+    managed-by: k8s
+    description: "Local development secrets for Django"
 type: Opaque
 stringData:
-  DB_PASSWORD: ""
+  DB_PASSWORD: "CHANGE_ME"
   SECRET_KEY: "django-insecure-change-me"
 ---
 apiVersion: v1
@@ -103,29 +117,15 @@ kind: Deployment
 metadata:
   name: server
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: server
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 1
   template:
     metadata:
       labels:
         app: server
     spec:
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    app: server
-                topologyKey: kubernetes.io/hostname
       containers:
         - name: server
           image: server-tc
@@ -227,29 +227,15 @@ kind: Deployment
 metadata:
   name: client
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: client
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 1
   template:
     metadata:
       labels:
         app: client
     spec:
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    app: client
-                topologyKey: kubernetes.io/hostname
       containers:
         - name: client
           image: client-tc
@@ -290,23 +276,3 @@ spec:
       port: 80
       targetPort: 80
       nodePort: 30080
----
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: server-pdb
-spec:
-  minAvailable: 1
-  selector:
-    matchLabels:
-      app: server
----
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: client-pdb
-spec:
-  minAvailable: 1
-  selector:
-    matchLabels:
-      app: client

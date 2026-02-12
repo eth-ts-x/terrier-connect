@@ -39,7 +39,7 @@ services:
     image: postgres:17
     environment:
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=
+      - POSTGRES_PASSWORD=CHANGE_ME
       - POSTGRES_DB=terrier-connect-dev
     ports:
       - "5432:5432"

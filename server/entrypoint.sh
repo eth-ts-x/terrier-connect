@@ -8,12 +8,13 @@ echo "Waiting for database..."
 # Or just let it fail and let Docker restart the container if it's not ready.
 # For now, we'll just run migrations.
 python << END
+import os
 import socket
 import time
 import sys
 
-port = 5432
-host = "db" # This should match the DB_HOST in .env
+port = int(os.getenv("DB_PORT", "5432"))
+host = os.getenv("DB_HOST", "db")
 
 while True:
     try:
@@ -21,7 +22,7 @@ while True:
             print("PostgreSQL started")
             break
     except OSError:
-        print("PostgreSQL not ready, waiting...")
+        print(f"PostgreSQL not ready at {host}:{port}, waiting...")
         time.sleep(1)
 END
 

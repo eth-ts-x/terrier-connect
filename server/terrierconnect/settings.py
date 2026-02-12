@@ -28,6 +28,8 @@ MEDIA_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(MEDIA_DIR, 'media') if not os.getenv('media_path') else os.getenv('media_path')
 
+USE_GCS = os.getenv('USE_GCS', '0') == '1'
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
@@ -72,6 +74,18 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
 
 ]
+
+if USE_GCS:
+    INSTALLED_APPS += ["storages"]
+
+    GS_BUCKET_NAME = os.getenv("GS_BUCKET_NAME", "")
+    GS_PROJECT_ID = os.getenv("GS_PROJECT_ID", "")
+    GS_DEFAULT_ACL = os.getenv("GS_DEFAULT_ACL", "publicRead")
+    GS_QUERYSTRING_AUTH = os.getenv("GS_QUERYSTRING_AUTH", "false").lower() == "true"
+    GS_FILE_OVERWRITE = False
+
+    DEFAULT_FILE_STORAGE = "storages.backends.gcloud.GoogleCloudStorage"
+    MEDIA_URL = f"https://storage.googleapis.com/{GS_BUCKET_NAME}/" if GS_BUCKET_NAME else MEDIA_URL
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
