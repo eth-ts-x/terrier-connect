@@ -72,18 +72,24 @@ resource "google_service_networking_connection" "private_vpc_connection" {
   network                 = google_compute_network.vpc_network.id
   service                 = "servicenetworking.googleapis.com"
   reserved_peering_ranges = [google_compute_global_address.private_services.name]
+  deletion_policy         = "ABANDON"
 }
 
 # GKE cluster + node pool
 resource "google_container_cluster" "gke" {
   name                     = var.gke_cluster_name
   location                 = var.region
+  deletion_protection      = false
   remove_default_node_pool = true
   initial_node_count       = 1
 
   network    = google_compute_network.vpc_network.id
   subnetwork = google_compute_subnetwork.gke_subnet.id
 
+  node_config {
+    disk_size_gb = 30
+  }
+  
   ip_allocation_policy {
     cluster_secondary_range_name  = "pods"
     services_secondary_range_name = "services"
@@ -108,6 +114,7 @@ resource "google_container_node_pool" "primary_nodes" {
 
   node_config {
     machine_type = var.gke_node_machine_type
+    disk_size_gb = 30
     oauth_scopes = ["https://www.googleapis.com/auth/cloud-platform"]
   }
 }
@@ -121,24 +128,12 @@ resource "google_artifact_registry_repository" "repo" {
   depends_on    = [google_project_service.apis]
 }
 
-# Terraform state bucket
-resource "google_storage_bucket" "tf_state" {
-  name          = "${var.project_id}-tf-state"
-  location      = var.region
-  force_destroy = false
-
-  versioning {
-    enabled = true
-  }
-
-  depends_on = [google_project_service.apis]
-}
-
 # Cloud SQL (Postgres) with private IP
 resource "google_sql_database_instance" "db" {
   name             = var.cloudsql_instance_name
   database_version = "POSTGRES_15"
   region           = var.region
+  deletion_protection = false
 
   settings {
     tier              = var.cloudsql_tier
@@ -210,17 +205,23 @@ resource "google_service_account_iam_member" "gke_workload_identity" {
   service_account_id = google_service_account.gke_workload.name
   role               = "roles/iam.workloadIdentityUser"
   member             = "serviceAccount:${var.project_id}.svc.id.goog[${var.k8s_namespace}/server]"
+
+  depends_on = [google_container_cluster.gke]
 }
 
 # Static IP for Ingress
 resource "google_compute_global_address" "lb_ip" {
   name = var.lb_ip_name
+
+  depends_on = [google_project_service.apis]
 }
 
 # Cloud DNS
 resource "google_dns_managed_zone" "primary" {
   name     = var.dns_zone_name
   dns_name = "${var.domain_name}."
+
+  depends_on = [google_project_service.apis]
 }
 
 resource "google_dns_record_set" "root_a" {

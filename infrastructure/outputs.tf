@@ -13,11 +13,6 @@ output "server_image_url" {
   value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.repo.repository_id}/server:latest"
 }
 
-output "terraform_state_bucket" {
-  description = "GCS bucket for Terraform state"
-  value       = google_storage_bucket.tf_state.name
-}
-
 output "gke_cluster_name" {
   description = "GKE cluster name"
   value       = google_container_cluster.gke.name
