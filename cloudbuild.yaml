@@ -1,13 +1,24 @@
 steps:
   # 1. Build Client Image
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:${SHORT_SHA}',
-           '-t', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:latest', './client']
+    args:
+      - 'build'
+      - '--build-arg'
+      - 'REACT_APP_GOOGLE_MAPS_API_KEY=${_REACT_APP_GOOGLE_MAPS_API_KEY}'
+      - '--build-arg'
+      - 'REACT_APP_API_BASE_URL=${_REACT_APP_API_BASE_URL}'
+      - '--build-arg'
+      - 'REACT_APP_MEDIA_BASE_URL=${_REACT_APP_MEDIA_BASE_URL}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:${BUILD_ID}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:latest'
+      - './client'
     id: 'Build Client'
 
   # 2. Build Server Image
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server:${SHORT_SHA}',
+    args: ['build', '-t', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server:${BUILD_ID}',
            '-t', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server:latest', './server']
     id: 'Build Server'
 
@@ -87,7 +98,7 @@ steps:
       - 'set'
       - 'image'
       - 'deployment/server'
-      - 'server=${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server:${SHORT_SHA}'
+      - 'server=${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server:${BUILD_ID}'
     env:
       - 'CLOUDSDK_COMPUTE_REGION=${_REGION}'
       - 'CLOUDSDK_CONTAINER_CLUSTER=${_CLUSTER_NAME}'
@@ -99,7 +110,7 @@ steps:
       - 'set'
       - 'image'
       - 'deployment/client'
-      - 'client=${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:${SHORT_SHA}'
+      - 'client=${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:${BUILD_ID}'
     env:
       - 'CLOUDSDK_COMPUTE_REGION=${_REGION}'
       - 'CLOUDSDK_CONTAINER_CLUSTER=${_CLUSTER_NAME}'
@@ -128,12 +139,15 @@ substitutions:
   _CLUSTER_NAME: terrier-connect-gke
   _DOMAIN_NAME: example.com
   _DNS_ZONE_NAME: terrier-connect-zone
+  _REACT_APP_GOOGLE_MAPS_API_KEY: CHANGE_ME
+  _REACT_APP_API_BASE_URL: /api
+  _REACT_APP_MEDIA_BASE_URL: /media
   _DB_PASSWORD: CHANGE_ME
 
 images:
-  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:${SHORT_SHA}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:${BUILD_ID}'
   - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:latest'
-  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server:${SHORT_SHA}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server:${BUILD_ID}'
   - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server:latest'
 
 options:

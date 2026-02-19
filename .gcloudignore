@@ -1,0 +1,34 @@
+.gcloudignore
+.git
+.gitignore
+
+# OS/editor junk
+.DS_Store
+.vscode
+.idea
+*.swp
+*.swo
+
+# Dependency/build artifacts
+**/node_modules/**
+**/build/**
+**/dist/**
+**/coverage/**
+
+# Python/terraform local state
+**/__pycache__/**
+**/.venv/**
+**/venv/**
+**/.terraform/**
+**/*.tfstate
+**/*.tfstate.*
+
+# Secrets/local env
+.env
+.env.*
+infrastructure/*.tfvars
+infrastructure/*.tfvars.json
+
+# Logs
+**/*.log
+crash.log

@@ -4,6 +4,14 @@ FROM node:22-alpine as build
 # Set the working directory in the container
 WORKDIR /app
 
+# Build-time variables for React
+ARG REACT_APP_GOOGLE_MAPS_API_KEY
+ARG REACT_APP_API_BASE_URL=/api
+ARG REACT_APP_MEDIA_BASE_URL=/media
+ENV REACT_APP_GOOGLE_MAPS_API_KEY=$REACT_APP_GOOGLE_MAPS_API_KEY
+ENV REACT_APP_API_BASE_URL=$REACT_APP_API_BASE_URL
+ENV REACT_APP_MEDIA_BASE_URL=$REACT_APP_MEDIA_BASE_URL
+
 # Copy package.json and install dependencies
 COPY package.json package-lock.json ./
 RUN npm install
