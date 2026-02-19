@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 from pathlib import Path
 import os
 from dotenv import load_dotenv
+import socket
 
 # Load environment variables from .env file
 load_dotenv()
@@ -41,6 +42,12 @@ SECRET_KEY = os.getenv('SECRET_KEY', "django-insecure-6b$8-s658#p-ml(8k+1uiyw#=u
 DEBUG = os.getenv('DEBUG', '1') == '1'
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1,db,server').split(',')
+
+try:
+    pod_ip = socket.gethostbyname(socket.gethostname())
+    ALLOWED_HOSTS.append(pod_ip)
+except Exception:
+    pass
 
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
