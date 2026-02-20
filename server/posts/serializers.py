@@ -20,11 +20,16 @@ class PostSerializer(serializers.ModelSerializer):
 class CommentSerializer(serializers.ModelSerializer):
     replies = serializers.SerializerMethodField()
     display_name = serializers.CharField(source='author.display_name', read_only=True)
-    avatar_url = serializers.CharField(source='author.avatar_url', read_only=True)
+    avatar_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Comment
         fields = ['id', 'post', 'author', 'content', 'parent', 'create_time', 'replies', 'display_name', 'avatar_url']
+
+    def get_avatar_url(self, obj):
+        if obj.author.avatar_url:
+            return obj.author.avatar_url.url
+        return None
 
     def get_replies(self, obj):
         # Serialize replies recursively

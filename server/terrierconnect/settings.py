@@ -87,7 +87,7 @@ if USE_GCS:
 
     GS_BUCKET_NAME = os.getenv("GS_BUCKET_NAME", "")
     GS_PROJECT_ID = os.getenv("GS_PROJECT_ID", "")
-    GS_DEFAULT_ACL = os.getenv("GS_DEFAULT_ACL", "publicRead")
+    GS_DEFAULT_ACL = None  # Uniform bucket-level access is enabled; object-level ACLs are not allowed
     GS_QUERYSTRING_AUTH = os.getenv("GS_QUERYSTRING_AUTH", "false").lower() == "true"
     GS_FILE_OVERWRITE = False
 

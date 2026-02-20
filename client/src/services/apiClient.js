@@ -26,9 +26,9 @@ apiClient.interceptors.request.use(
 
 export const resolveMediaUrl = (path) => {
   if (!path) return "";
-  if (/^https?:\/\//i.test(path)) return path;
-  const normalized = path.startsWith("/") ? path : `/${path}`;
-  return `${MEDIA_BASE_URL}${normalized}`;
+  if (/^https?:\/\//i.test(path)) return path;  // absolute URL (e.g. GCS) — pass through
+  if (path.startsWith("/")) return path;          // already a root-relative path — pass through
+  return `${MEDIA_BASE_URL}/${path}`;             // bare key (legacy fallback) — prepend base
 };
 
 export default apiClient;

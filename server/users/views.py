@@ -421,7 +421,7 @@ def update_profile(request):
             
             # Delete old avatar if exists
             if user.avatar_url:
-                default_storage.delete(user.avatar_url.path)
+                default_storage.delete(user.avatar_url.name)
                 
             avatar_path = default_storage.save(
                 f'user_avatars/{user.id}_{avatar.name}', 

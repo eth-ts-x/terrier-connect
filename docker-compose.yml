@@ -12,7 +12,7 @@ services:
       - server
     # Need to customize the nginx config for production
     volumes:
-      - ./client/nginx_conf/nginx_prod.conf:/etc/nginx/nginx.conf
+      - ./client/nginx_conf/nginx_dev.conf:/etc/nginx/nginx.conf
     networks:
       - tc-network
 

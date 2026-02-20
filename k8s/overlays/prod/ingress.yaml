@@ -18,13 +18,6 @@ spec:
                 name: server
                 port:
                   number: 8000
-          - path: /media
-            pathType: Prefix
-            backend:
-              service:
-                name: server
-                port:
-                  number: 8000
           - path: /
             pathType: Prefix
             backend:
@@ -36,13 +29,6 @@ spec:
       http:
         paths:
           - path: /api
-            pathType: Prefix
-            backend:
-              service:
-                name: server
-                port:
-                  number: 8000
-          - path: /media
             pathType: Prefix
             backend:
               service:

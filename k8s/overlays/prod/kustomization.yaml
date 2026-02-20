@@ -18,7 +18,6 @@ configMapGenerator:
       - USE_GCS=1
       - GS_BUCKET_NAME=terrier-connect-media
       - GS_PROJECT_ID=PROJECT_ID
-      - GS_DEFAULT_ACL=publicRead
       - GS_QUERYSTRING_AUTH=false
 
 secretGenerator:
