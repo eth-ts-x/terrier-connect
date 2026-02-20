@@ -28,6 +28,9 @@ FROM nginx:alpine
 # Copy the build output to Nginx's default directory
 COPY --from=build /app/build /usr/share/nginx/html
 
+# Use production Nginx config with SPA fallback (try_files)
+COPY nginx_conf/nginx_prod.conf /etc/nginx/nginx.conf
+
 # Expose the Nginx port
 EXPOSE 80
 
