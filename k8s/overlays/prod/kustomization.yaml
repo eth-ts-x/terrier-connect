@@ -6,6 +6,11 @@ resources:
   - ingress.yaml
 
 configMapGenerator:
+  # cluster-vars is rendered by Cloud Build from cluster-vars.env.tmpl.
+  # For local dev: cp cluster-vars.env.example cluster-vars.env and fill in values.
+  - name: cluster-vars
+    envs:
+      - cluster-vars.env
   - name: app-config
     literals:
       - DB_NAME=terrier-connect-prod
@@ -13,11 +18,11 @@ configMapGenerator:
       - DB_HOST=127.0.0.1
       - DB_PORT=5432
       - DEBUG=0
-      - ALLOWED_HOSTS=example.com,www.example.com
-      - CLOUDSQL_INSTANCE=PROJECT_ID:REGION:INSTANCE_NAME
+      - ALLOWED_HOSTS=placeholder
+      - CLOUDSQL_INSTANCE=placeholder
       - USE_GCS=1
       - GS_BUCKET_NAME=terrier-connect-media
-      - GS_PROJECT_ID=PROJECT_ID
+      - GS_PROJECT_ID=placeholder
       - GS_QUERYSTRING_AUTH=false
 
 secretGenerator:
@@ -28,6 +33,85 @@ secretGenerator:
 
 generatorOptions:
   disableNameSuffixHash: true
+
+# replacements propagate values from cluster-vars into all resources that
+# previously contained hardcoded domain names, project IDs, and instance names.
+replacements:
+  - source:
+      kind: ConfigMap
+      name: cluster-vars
+      fieldPath: data.DOMAIN_NAME
+    targets:
+      - select:
+          kind: Ingress
+          name: terrier-connect-ingress
+        fieldPaths:
+          - spec.rules.0.host
+      - select:
+          kind: ManagedCertificate
+          name: terrier-connect-cert
+        fieldPaths:
+          - spec.domains.0
+
+  - source:
+      kind: ConfigMap
+      name: cluster-vars
+      fieldPath: data.WWW_DOMAIN_NAME
+    targets:
+      - select:
+          kind: Ingress
+          name: terrier-connect-ingress
+        fieldPaths:
+          - spec.rules.1.host
+      - select:
+          kind: ManagedCertificate
+          name: terrier-connect-cert
+        fieldPaths:
+          - spec.domains.1
+
+  - source:
+      kind: ConfigMap
+      name: cluster-vars
+      fieldPath: data.ALLOWED_HOSTS
+    targets:
+      - select:
+          kind: ConfigMap
+          name: app-config
+        fieldPaths:
+          - data.ALLOWED_HOSTS
+
+  - source:
+      kind: ConfigMap
+      name: cluster-vars
+      fieldPath: data.CLOUDSQL_INSTANCE
+    targets:
+      - select:
+          kind: ConfigMap
+          name: app-config
+        fieldPaths:
+          - data.CLOUDSQL_INSTANCE
+
+  - source:
+      kind: ConfigMap
+      name: cluster-vars
+      fieldPath: data.GS_PROJECT_ID
+    targets:
+      - select:
+          kind: ConfigMap
+          name: app-config
+        fieldPaths:
+          - data.GS_PROJECT_ID
+
+  - source:
+      kind: ConfigMap
+      name: cluster-vars
+      fieldPath: data.GKE_SA_EMAIL
+    targets:
+      - select:
+          kind: ServiceAccount
+          name: server
+        fieldPaths:
+          - metadata.annotations.[iam.gke.io/gcp-service-account]
 
 patchesStrategicMerge:
   - patch-server-cloudsql.yaml

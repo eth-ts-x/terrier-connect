@@ -83,16 +83,35 @@ steps:
     id: 'Get GKE Credentials'
     waitFor: ['Terraform Apply']
 
-  # 9. Deploy Kubernetes manifests (prod overlay)
+  # 9. Render cluster-vars.env for Kustomize replacements
+  - name: 'gcr.io/cloud-builders/gcloud'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        cat > k8s/overlays/prod/cluster-vars.env << EOF
+        DOMAIN_NAME=${_DOMAIN_NAME}
+        WWW_DOMAIN_NAME=www.${_DOMAIN_NAME}
+        ALLOWED_HOSTS=${_DOMAIN_NAME},www.${_DOMAIN_NAME}
+        CLOUDSQL_INSTANCE=${PROJECT_ID}:${_REGION}:${_CLOUDSQL_INSTANCE_NAME}
+        GS_PROJECT_ID=${PROJECT_ID}
+        GKE_SA_EMAIL=terrier-connect-gke-sa@${PROJECT_ID}.iam.gserviceaccount.com
+        EOF
+        echo "--- Rendered cluster-vars.env ---"
+        cat k8s/overlays/prod/cluster-vars.env
+    id: 'Render cluster-vars'
+    waitFor: ['Get GKE Credentials']
+
+  # 10. Deploy Kubernetes manifests (prod overlay)
   - name: 'gcr.io/cloud-builders/kubectl'
     args: ['apply', '-k', 'k8s/overlays/prod']
     env:
       - 'CLOUDSDK_COMPUTE_REGION=${_REGION}'
       - 'CLOUDSDK_CONTAINER_CLUSTER=${_CLUSTER_NAME}'
     id: 'Kustomize Apply'
-    waitFor: ['Get GKE Credentials']
+    waitFor: ['Render cluster-vars']
 
-  # 10. Update images to current build
+  # 11. Update images to current build
   - name: 'gcr.io/cloud-builders/kubectl'
     args:
       - 'set'
@@ -139,6 +158,7 @@ substitutions:
   _CLUSTER_NAME: terrier-connect-gke
   _DOMAIN_NAME: example.com
   _DNS_ZONE_NAME: terrier-connect-zone
+  _CLOUDSQL_INSTANCE_NAME: terrier-connect-db
   _REACT_APP_GOOGLE_MAPS_API_KEY: CHANGE_ME
   _REACT_APP_API_BASE_URL: /api
   _REACT_APP_MEDIA_BASE_URL: /media
