@@ -35,47 +35,7 @@ steps:
     id: 'Push Server'
     waitFor: ['Build Server']
 
-  # 5. Terraform Init
-  - name: 'hashicorp/terraform:1.5.7'
-    entrypoint: 'sh'
-    args:
-      - '-c'
-      - |
-        cd infrastructure
-        terraform init -backend-config="bucket=${PROJECT_ID}-tf-state"
-    id: 'Terraform Init'
-    waitFor: ['Push Client', 'Push Server']
-
-  # 6. Terraform Plan
-  - name: 'hashicorp/terraform:1.5.7'
-    entrypoint: 'sh'
-    args:
-      - '-c'
-      - |
-        cd infrastructure
-        terraform plan -out=tfplan \
-          -var="project_id=${PROJECT_ID}" \
-          -var="region=${_REGION}" \
-          -var="zone=${_ZONE}" \
-          -var="domain_name=${_DOMAIN_NAME}" \
-          -var="dns_zone_name=${_DNS_ZONE_NAME}" \
-          -var="db_password=$$_DB_PASSWORD"
-    secretEnv: ['_DB_PASSWORD']
-    id: 'Terraform Plan'
-    waitFor: ['Terraform Init']
-
-  # 7. Terraform Apply
-  - name: 'hashicorp/terraform:1.5.7'
-    entrypoint: 'sh'
-    args:
-      - '-c'
-      - |
-        cd infrastructure
-        terraform apply -auto-approve tfplan
-    id: 'Terraform Apply'
-    waitFor: ['Terraform Plan']
-
-  # 8. Configure kubectl to talk to GKE
+  # 5. Configure kubectl to talk to GKE
   - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args:
@@ -83,7 +43,7 @@ steps:
       - |
         gcloud container clusters get-credentials ${_CLUSTER_NAME} --region ${_REGION}
     id: 'Get GKE Credentials'
-    waitFor: ['Terraform Apply']
+    waitFor: ['Push Client', 'Push Server']
 
   # 9. Render cluster-vars.env and app-secrets.env for Kustomize
   - name: 'gcr.io/cloud-builders/gcloud'
@@ -170,10 +130,8 @@ availableSecrets:
 
 substitutions:
   _REGION: us-central1
-  _ZONE: us-central1-a
   _CLUSTER_NAME: terrier-connect-gke
   _DOMAIN_NAME: example.com
-  _DNS_ZONE_NAME: terrier-connect-zone
   _CLOUDSQL_INSTANCE_NAME: terrier-connect-db
   _REACT_APP_API_BASE_URL: /api
   _REACT_APP_MEDIA_BASE_URL: /media

@@ -350,10 +350,8 @@ resource "google_cloudbuild_trigger" "gitops_main" {
   # Non-secret substitutions; secrets come from Secret Manager via availableSecrets
   substitutions = {
     _REGION                   = var.region
-    _ZONE                     = var.zone
     _CLUSTER_NAME             = var.gke_cluster_name
     _DOMAIN_NAME              = var.domain_name
-    _DNS_ZONE_NAME            = var.dns_zone_name
     _CLOUDSQL_INSTANCE_NAME   = var.cloudsql_instance_name
     _REACT_APP_API_BASE_URL   = "/api"
     _REACT_APP_MEDIA_BASE_URL = "/media"
