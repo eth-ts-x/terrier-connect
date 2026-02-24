@@ -11,20 +11,20 @@
 
 steps:
   # 1. Build Client Image
+  # Must use entrypoint bash so $$_MAPS_API_KEY (secretEnv) gets shell-expanded.
+  # Using args directly would pass the literal string "$_MAPS_API_KEY" to docker.
   - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
     args:
-      - 'build'
-      - '--build-arg'
-      - 'REACT_APP_GOOGLE_MAPS_API_KEY=$$_MAPS_API_KEY'
-      - '--build-arg'
-      - 'REACT_APP_API_BASE_URL=${_REACT_APP_API_BASE_URL}'
-      - '--build-arg'
-      - 'REACT_APP_MEDIA_BASE_URL=${_REACT_APP_MEDIA_BASE_URL}'
-      - '-t'
-      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:${BUILD_ID}'
-      - '-t'
-      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:latest'
-      - './client'
+      - '-c'
+      - |
+        docker build \
+          --build-arg REACT_APP_GOOGLE_MAPS_API_KEY=$$_MAPS_API_KEY \
+          --build-arg REACT_APP_API_BASE_URL=${_REACT_APP_API_BASE_URL} \
+          --build-arg REACT_APP_MEDIA_BASE_URL=${_REACT_APP_MEDIA_BASE_URL} \
+          -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:${BUILD_ID} \
+          -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:latest \
+          ./client
     secretEnv: ['_MAPS_API_KEY']
     id: 'Build Client'
 

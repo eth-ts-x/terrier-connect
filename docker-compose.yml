@@ -4,6 +4,8 @@ services:
   client:
     build:
       context: ./client
+      args:
+        - REACT_APP_GOOGLE_MAPS_API_KEY=${REACT_APP_GOOGLE_MAPS_API_KEY}
     image: client-tc
     container_name: client
     ports:
