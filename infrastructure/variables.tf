@@ -126,3 +126,20 @@ variable "gke_workload_sa_name" {
   type        = string
   default     = "terrier-connect-gke-sa"
 }
+
+variable "github_owner" {
+  description = "GitHub username or organisation that owns the repo"
+  type        = string
+}
+
+variable "github_repo" {
+  description = "GitHub repository name (without the owner prefix)"
+  type        = string
+  default     = "terrier-connect"
+}
+
+variable "github_connection_name" {
+  description = "Name of the 2nd-gen Cloud Build GitHub connection created in the GCP Console"
+  type        = string
+  default     = "terrier-connect-github"
+}

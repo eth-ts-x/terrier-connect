@@ -26,10 +26,12 @@ configMapGenerator:
       - GS_QUERYSTRING_AUTH=false
 
 secretGenerator:
+  # app-secrets.env is written by Cloud Build from Secret Manager values.
+  # For local dev: cp cluster-vars.env.example cluster-vars.env, then create
+  # app-secrets.env with DB_PASSWORD=... and SECRET_KEY=...
   - name: app-secrets
-    literals:
-      - DB_PASSWORD=CHANGE_ME
-      - SECRET_KEY=CHANGE_ME
+    envs:
+      - app-secrets.env
 
 generatorOptions:
   disableNameSuffixHash: true

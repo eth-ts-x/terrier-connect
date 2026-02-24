@@ -11,6 +11,11 @@ cloudsql_tier              = "db-f1-micro"
 cloudsql_availability_type = "ZONAL"
 db_name                     = "terrier-connect-prod"
 db_user                     = "appuser"
+# db_password is required for the first `terraform apply` to create the Cloud SQL user.
+# After the first apply, add the value to Secret Manager and Cloud Build will use it from there:
+#   echo -n "your-password" | gcloud secrets versions add terrier-connect-db-password --data-file=-
+#   echo -n "your-secret-key" | gcloud secrets versions add terrier-connect-django-secret-key --data-file=-
+#   echo -n "your-maps-api-key" | gcloud secrets versions add terrier-connect-maps-api-key --data-file=-
 db_password                 = "CHANGE_ME"
 
 media_bucket_name   = "terrier-connect-media"
@@ -22,3 +27,11 @@ dns_zone_name = "terrier-connect-zone"
 lb_ip_name            = "terrier-connect-ip"
 k8s_namespace         = "default"
 gke_workload_sa_name  = "terrier-connect-gke-sa"
+
+# GitOps trigger
+# 1. Go to Cloud Build -> Repositories (2nd gen) -> Create host connection -> GitHub
+#    Complete the OAuth flow and name the connection (e.g. "terrier-connect-github")
+# 2. Set the values below to match your GitHub account and connection name
+github_owner           = "your-github-username"
+github_repo            = "terrier-connect"
+github_connection_name = "terrier-connect-github"

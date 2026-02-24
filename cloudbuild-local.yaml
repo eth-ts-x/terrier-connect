@@ -1,3 +1,14 @@
+# cloudbuild-local.yaml
+# Use this for local development / ad-hoc deploys when you don't want to run Terraform.
+# Assumes infrastructure already exists (GKE cluster, Cloud SQL, Artifact Registry, etc.)
+# Secrets are still fetched from Secret Manager (must be populated after initial terraform apply).
+#
+# Usage:
+#   gcloud builds submit --project "$PROJECT_ID" --config cloudbuild-local.yaml \
+#     --substitutions=_DOMAIN_NAME="yourdomain.com" .
+#
+# To override any substitution, append it to --substitutions.
+
 steps:
   # 1. Build Client Image
   - name: 'gcr.io/cloud-builders/docker'
@@ -19,8 +30,10 @@ steps:
 
   # 2. Build Server Image
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server:${BUILD_ID}',
-           '-t', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server:latest', './server']
+    args: ['build',
+           '-t', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server:${BUILD_ID}',
+           '-t', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server:latest',
+           './server']
     id: 'Build Server'
 
   # 3. Push Client Images to Artifact Registry
@@ -35,47 +48,7 @@ steps:
     id: 'Push Server'
     waitFor: ['Build Server']
 
-  # 5. Terraform Init
-  - name: 'hashicorp/terraform:1.5.7'
-    entrypoint: 'sh'
-    args:
-      - '-c'
-      - |
-        cd infrastructure
-        terraform init -backend-config="bucket=${PROJECT_ID}-tf-state"
-    id: 'Terraform Init'
-    waitFor: ['Push Client', 'Push Server']
-
-  # 6. Terraform Plan
-  - name: 'hashicorp/terraform:1.5.7'
-    entrypoint: 'sh'
-    args:
-      - '-c'
-      - |
-        cd infrastructure
-        terraform plan -out=tfplan \
-          -var="project_id=${PROJECT_ID}" \
-          -var="region=${_REGION}" \
-          -var="zone=${_ZONE}" \
-          -var="domain_name=${_DOMAIN_NAME}" \
-          -var="dns_zone_name=${_DNS_ZONE_NAME}" \
-          -var="db_password=$$_DB_PASSWORD"
-    secretEnv: ['_DB_PASSWORD']
-    id: 'Terraform Plan'
-    waitFor: ['Terraform Init']
-
-  # 7. Terraform Apply
-  - name: 'hashicorp/terraform:1.5.7'
-    entrypoint: 'sh'
-    args:
-      - '-c'
-      - |
-        cd infrastructure
-        terraform apply -auto-approve tfplan
-    id: 'Terraform Apply'
-    waitFor: ['Terraform Plan']
-
-  # 8. Configure kubectl to talk to GKE
+  # 5. Configure kubectl (no Terraform dependency — cluster already exists)
   - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args:
@@ -83,9 +56,9 @@ steps:
       - |
         gcloud container clusters get-credentials ${_CLUSTER_NAME} --region ${_REGION}
     id: 'Get GKE Credentials'
-    waitFor: ['Terraform Apply']
+    waitFor: ['Push Client', 'Push Server']
 
-  # 9. Render cluster-vars.env and app-secrets.env for Kustomize
+  # 6. Render cluster-vars.env and app-secrets.env for Kustomize
   - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args:
@@ -109,7 +82,7 @@ steps:
     id: 'Render cluster-vars'
     waitFor: ['Get GKE Credentials']
 
-  # 10. Deploy Kubernetes manifests (prod overlay)
+  # 7. Deploy Kubernetes manifests (prod overlay)
   - name: 'gcr.io/cloud-builders/kubectl'
     args: ['apply', '-k', 'k8s/overlays/prod']
     env:
@@ -118,7 +91,7 @@ steps:
     id: 'Kustomize Apply'
     waitFor: ['Render cluster-vars']
 
-  # 11. Update images to current build
+  # 8. Update images to current build
   - name: 'gcr.io/cloud-builders/kubectl'
     args:
       - 'set'
@@ -170,10 +143,8 @@ availableSecrets:
 
 substitutions:
   _REGION: us-central1
-  _ZONE: us-central1-a
   _CLUSTER_NAME: terrier-connect-gke
   _DOMAIN_NAME: example.com
-  _DNS_ZONE_NAME: terrier-connect-zone
   _CLOUDSQL_INSTANCE_NAME: terrier-connect-db
   _REACT_APP_API_BASE_URL: /api
   _REACT_APP_MEDIA_BASE_URL: /media
@@ -187,3 +158,7 @@ images:
 options:
   logging: CLOUD_LOGGING_ONLY
   machineType: 'E2_HIGHCPU_8'
+
+# Pin to the dedicated Cloud Build SA (created by Terraform).
+# Uses built-in ${PROJECT_ID} so no project ID is hardcoded here.
+serviceAccount: 'projects/${PROJECT_ID}/serviceAccounts/terrier-connect-cloudbuild-sa@${PROJECT_ID}.iam.gserviceaccount.com'
