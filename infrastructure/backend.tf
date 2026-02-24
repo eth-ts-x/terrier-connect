@@ -1,6 +1,6 @@
 terraform {
   backend "gcs" {
     prefix  = "terraform/state"
-    # bucket is configured via -backend-config in cloudbuild.yaml
+    # bucket should be configured at the first step of the initialization
   }
 }

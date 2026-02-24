@@ -75,13 +75,15 @@ This project was developed as part of **CS673 - Software Engineering** at Boston
 
 ### DevOps & Infrastructure
 | Technology | Purpose |
-|------------|---------|
-| **Docker & Docker Compose** | Containerization |
-| **Google Cloud Platform** | Cloud Hosting |
+|------------|----------|
+| **Docker & Docker Compose** | Local containerization |
+| **Google Cloud Platform** | Cloud hosting (GKE, Cloud SQL, GCS) |
 | **Terraform** | Infrastructure as Code |
-| **Cloud Build** | CI/CD Pipeline |
-| **Nginx** | Reverse Proxy |
-| **Artifact Registry** | Container Registry |
+| **Google Cloud Build** | CI/CD pipeline (GitOps + local) |
+| **GCP Secret Manager** | Secrets management |
+| **Kustomize** | Kubernetes manifest templating |
+| **Nginx** | Reverse proxy |
+| **Artifact Registry** | Container image registry |
 
 ---
 
@@ -211,23 +213,46 @@ docker-compose up --build
 
 ### CI/CD Pipeline
 
+There are two separate pipelines — app deploys are fully automated via GitOps;
+infrastructure changes are applied manually via Terraform.
+
 ```
-GitHub Push → Cloud Build Trigger
-                    │
-    ┌───────────────┼───────────────┐
-    ▼               ▼               ▼
-Build Client    Build Server    Terraform
-   Image           Image           Init
-    │               │               │
-    ▼               ▼               ▼
-Push to         Push to         Terraform
-Artifact Reg.   Artifact Reg.   Plan/Apply
-    │               │               │
-    └───────────────┼───────────────┘
-                    ▼
-            Update Running
-            Containers on VM
+┌─────────────────────────────────────────────────────────────────┐
+│                    App Deploy (GitOps)                          │
+│                                                                 │
+│  Push to main ──▶ Cloud Build Trigger                          │
+│                          │                                      │
+│          ┌───────────────┴───────────────┐                     │
+│          ▼                               ▼                     │
+│   Build Client Image           Build Server Image              │
+│          │                               │                     │
+│          ▼                               ▼                     │
+│   Push to Artifact Reg.   Push to Artifact Reg.                │
+│          │                               │                     │
+│          └───────────────┬───────────────┘                     │
+│                          ▼                                      │
+│              Get GKE Credentials                                │
+│                          │                                      │
+│                          ▼                                      │
+│             Render cluster-vars.env +                           │
+│             app-secrets.env (from Secret Manager)               │
+│                          │                                      │
+│                          ▼                                      │
+│              kubectl apply -k k8s/overlays/prod                 │
+│                          │                                      │
+│                          ▼                                      │
+│              kubectl set image + rollout status                 │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│              Infrastructure Changes (manual)                    │
+│                                                                 │
+│   cd infrastructure && terraform apply                          │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+Secrets (DB password, Django secret key, Maps API key) are stored in
+**GCP Secret Manager** and injected into builds at runtime — never in git.
 
 ---
 
@@ -281,16 +306,9 @@ terrier-connect/
 │   ├── public/                 # Static files
 │   ├── src/
 │   │   ├── components/         # Reusable UI components
-│   │   │   ├── Header.js
-│   │   │   ├── Home.js
-│   │   │   ├── Profile.js
-│   │   │   └── ...
 │   │   ├── pages/              # Page components
-│   │   │   ├── forumPost/
-│   │   │   ├── search/
-│   │   │   └── follower/
 │   │   ├── services/           # API service layer
-│   │   └── App.js              # Main app component
+│   │   └── App.js
 │   ├── Dockerfile
 │   └── package.json
 │
@@ -303,19 +321,29 @@ terrier-connect/
 │   ├── requirements.txt
 │   └── Dockerfile
 │
+├── k8s/                        # Kubernetes manifests
+│   ├── base/                   # Base manifests (deployments, services)
+│   └── overlays/
+│       └── prod/               # Production overlay (Kustomize)
+│           ├── kustomization.yaml      # Replacements + secret generator
+│           ├── cluster-vars.env.example
+│           ├── app-secrets.env.example
+│           ├── ingress.yaml
+│           └── managed-cert.yaml
+│
 ├── infrastructure/             # Terraform IaC
-│   ├── main.tf
+│   ├── main.tf                 # All GCP resources
 │   ├── variables.tf
 │   ├── outputs.tf
-│   └── startup.sh
+│   ├── backend.tf              # GCS remote state
+│   ├── terraform.tfvars        # (gitignored — contains secrets)
+│   └── terraform.tfvars.example
 │
-├── documents/                  # Project documentation
-│   ├── CS673 Team-5 SRS.pdf
-│   ├── CS673 Team-5 SDD.pdf
-│   └── ...
-│
-├── docker-compose.yml          # Docker orchestration
-├── cloudbuild.yaml             # GCP CI/CD pipeline
+├── documents/                  # Project documentation & notes
+├── scripts/                    # Helper scripts
+├── docker-compose.yml          # Local Docker orchestration
+├── cloudbuild.yaml             # GitOps pipeline (push to main)
+├── cloudbuild-local.yaml       # Local/manual deploy pipeline
 └── README.md
 ```
 
@@ -323,21 +351,53 @@ terrier-connect/
 
 ## 🔧 Configuration
 
+### Local Development (Docker Compose)
+
+```bash
+# Start all services
+docker compose up --build
+
+# Access the application
+# Frontend: http://localhost:3002
+# Backend:  http://localhost:8000
+```
+
+### Cloud Deployment
+
+See [infrastructure/README.md](infrastructure/README.md) for full setup instructions.
+
+**Deploy via GitOps (automatic):**
+```bash
+git push origin main
+# Cloud Build trigger fires automatically
+```
+
+**Deploy manually (without a git push):**
+```bash
+gcloud builds submit \
+  --project "$PROJECT_ID" \
+  --config cloudbuild-local.yaml \
+  --substitutions=_DOMAIN_NAME="yourdomain.com" \
+  .
+```
+
+**Run infrastructure changes:**
+```bash
+cd infrastructure
+terraform apply
+```
+
 ### Environment Variables
 
-#### Backend (`server/.env`)
-```env
-SECRET_KEY=your-django-secret-key
-DEBUG=True
-DATABASE_URL=postgres://user:pass@host:5432/dbname
-ALLOWED_HOSTS=localhost,127.0.0.1
-```
+For **local development**, Docker Compose reads from environment files.
+For **production**, all secrets are stored in **GCP Secret Manager** and
+injected into Cloud Build at runtime — nothing sensitive is committed to git.
 
-#### Frontend (`client/.env`)
-```env
-REACT_APP_API_URL=http://localhost:8000
-REACT_APP_GOOGLE_MAPS_API_KEY=your-google-maps-key
-```
+| Secret | Secret Manager name |
+|--------|--------------------|
+| DB password | `terrier-connect-db-password` |
+| Django secret key | `terrier-connect-django-secret-key` |
+| Google Maps API key | `terrier-connect-maps-api-key` |
 
 ---
 
