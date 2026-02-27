@@ -69,12 +69,6 @@ const NewPostModal = ({ open, handleClose }) => {
       return;
     }
 
-    const token = localStorage.getItem("token");
-    if (!token) {
-      alert("User is not logged in, please log in first!");
-      return;
-    }
-
     const data = new FormData();
     data.append("title", formData.title);
     data.append("content", formData.content);

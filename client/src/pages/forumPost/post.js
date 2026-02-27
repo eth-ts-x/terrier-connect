@@ -24,6 +24,7 @@ import {
 import { getUserDetail } from "../../services/userService";
 import { getPostHashtagsByPostId } from "../../services/hashtagService";
 import { resolveMediaUrl } from "../../services/apiClient";
+import { useAuth } from "../../context/AuthContext";
 import { postBoxStyle, commentStyle } from "./postStyles.js";
 import EditPost from "./editpost.js";
 import MapView from "./Map.js";
@@ -43,13 +44,12 @@ const PostWithID = () => {
   const [replyOpen, setReplyOpen] = useState(false);
   const [parentId, setParentId] = useState(null);
   const [replyContent, setReplyContent] = useState("");
-  const [currentUserId, setCurrentUserId] = useState(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [tags, setTags] = useState([]);
+  const { user: authUser } = useAuth();
+  const currentUserId = authUser?.id;
 
   useEffect(() => {
-   const user = JSON.parse(localStorage.getItem("user"));
-  if (user) { setCurrentUserId(user.id); }   
       const fetchData = async () => {
     try {
       const postDetail = await getPostDetail(id);

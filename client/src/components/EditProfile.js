@@ -9,6 +9,7 @@ import {
 } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import { getUserDetail, updateProfile } from "../services/userService";
+import { useAuth } from "../context/AuthContext";
 
 const EditProfile = () => {
   const [form, setForm] = useState({
@@ -22,20 +23,17 @@ const EditProfile = () => {
   const [user, setUser] = useState(null); // For user data
 
   const navigate = useNavigate();
+  const { user: authUser } = useAuth();
 
-  // Fetch logged-in user data
   useEffect(() => {
     const fetchUser = async () => {
-      const token = localStorage.getItem("token");
-      const userId = localStorage.getItem("userId");
-      if (!token || !userId) {
-        alert("You must be logged in to edit your profile.");
-        navigate("/");
+      if (!authUser) {
+        navigate("/login");
         return;
       }
 
       try {
-        const userData = await getUserDetail(userId);
+        const userData = await getUserDetail(authUser.id);
         setUser(userData);
         setForm((prevForm) => ({
           ...prevForm,
@@ -52,7 +50,7 @@ const EditProfile = () => {
     };
 
     fetchUser();
-  }, [navigate]);
+  }, [authUser, navigate]);
 
   // Handle form input changes
   const handleInputChange = (e) => {

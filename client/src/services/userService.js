@@ -1,12 +1,12 @@
 import apiClient from "./apiClient";
 
 export const getUserDetail = async (userId) => {
-  const response = await apiClient.get(`/users/user/${userId}/`);
-  return response.data.user;
+  const response = await apiClient.get(`/users/${userId}/`);
+  return response.data;
 };
 
 export const updateProfile = async (formData) => {
-  const response = await apiClient.put("/users/update_profile/", formData, {
+  const response = await apiClient.put("/users/profile/", formData, {
     headers: {
       "Content-Type": "multipart/form-data",
     },
@@ -15,7 +15,7 @@ export const updateProfile = async (formData) => {
 };
 
 export const changePassword = async (formData) => {
-  const response = await apiClient.put("/users/change_password/", formData, {
+  const response = await apiClient.put("/users/change-password/", formData, {
     headers: {
       "Content-Type": "multipart/form-data",
     },

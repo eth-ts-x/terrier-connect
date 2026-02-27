@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Box,
   Typography,
@@ -10,9 +10,10 @@ import {
   DialogContent,
   DialogActions,
 } from "@mui/material";
-import { useNavigate } from "react-router-dom"; // Import useNavigate
+import { useNavigate } from "react-router-dom";
 import { login, register } from "../services/authService";
 import { resolveMediaUrl } from "../services/apiClient";
+import { useAuth } from "../context/AuthContext";
 
 const Index = () => {
   const [openRegister, setOpenRegister] = useState(false);
@@ -24,11 +25,16 @@ const Index = () => {
     confirmPassword: "",
     avatar: null,
   });
-  const [loading, setLoading] = useState(false); // For loading states
-  const [error, setError] = useState(null); // For error handling
-  const [user, setUser] = useState(null); // For storing logged-in user data
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  const navigate = useNavigate(); // Initialize navigate
+  const navigate = useNavigate();
+  const { user: authUser, setUser: setAuthUser, logout: logoutAuth } = useAuth();
+
+  // Redirect to home if already authenticated
+  useEffect(() => {
+    if (authUser) navigate("/home");
+  }, [authUser, navigate]);
 
   // Open/Close Registration Dialog
   const handleRegisterOpen = () => setOpenRegister(true);
@@ -60,22 +66,7 @@ const Index = () => {
         password: loginForm.password,
       });
 
-      // Extract token and user information from the response
-      const { token, user } = response;
-
-      // Save user data to localStorage
-      localStorage.setItem("token", token);
-      localStorage.setItem("user", JSON.stringify(user));
-      localStorage.setItem("userId", user.id); // Save user ID to localStorage
-
-      console.log("Login successful:", response);
-
-      // Update user state
-      setUser(user);
-
-      alert(`Welcome, ${user.display_name}!`);
-
-      // Redirect to /home after login
+      setAuthUser(response.user);
       navigate("/home");
     } catch (err) {
       setError("Login failed. Please check your credentials.");
@@ -110,12 +101,7 @@ const Index = () => {
   };
 
   const handleLogout = () => {
-    // Clear the token and user data
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    localStorage.removeItem("userId"); // Remove user ID
-    setUser(null);
-    alert("You have been logged out.");
+    logoutAuth();
   };
 
   // Handle key press for login
@@ -154,7 +140,7 @@ const Index = () => {
             bgcolor: "white",
           }}
         >
-          {!user ? (
+          {!authUser ? (
             <>
               <TextField
                 fullWidth
@@ -209,13 +195,13 @@ const Index = () => {
           ) : (
             <>
               <Typography variant="h6" sx={{ mb: 2 }}>
-                Welcome, {user.display_name}!
+                Welcome, {authUser.display_name}!
               </Typography>
               <Typography variant="body1" sx={{ mb: 4 }}>
-                Email: {user.email}
+                Email: {authUser.email}
               </Typography>
               <img
-                src={resolveMediaUrl(user.avatar_url)}
+                src={resolveMediaUrl(authUser.avatar_url)}
                 alt="User Avatar"
                 style={{ width: "100px", height: "100px", borderRadius: "50%" }}
               />

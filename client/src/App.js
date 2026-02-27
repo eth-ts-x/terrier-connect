@@ -3,6 +3,7 @@ import {
   BrowserRouter as Router,
   Routes,
   Route,
+  Navigate,
   useLocation,
 } from "react-router-dom";
 import Header from "./components/Header";
@@ -14,14 +15,13 @@ import Index from "./components/Index";
 import UserMessages from "./pages/follower";
 import PostSearch from "./pages/search";
 import PostWithID from "./pages/forumPost/post";
+import ProtectedRoute from "./components/ProtectedRoute";
+import { AuthProvider } from "./context/AuthContext";
 
-// Wrapper component to conditionally render Header
+// Wrapper: hide the Header on the /login page
 const HeaderWrapper = ({ children }) => {
   const location = useLocation();
-
-  // Don't show header on index page
-  const showHeader = location.pathname !== "/";
-
+  const showHeader = location.pathname !== "/login";
   return (
     <>
       {showHeader && <Header />}
@@ -33,24 +33,60 @@ const HeaderWrapper = ({ children }) => {
 function App() {
   return (
     <Router>
-      <HeaderWrapper>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/home" element={<HomePage />} />
-          <Route path="/profile/me" element={<Profile />} />
-          <Route path="/profile/me/edit" element={<EditProfile />} />
-          <Route
-            path="/profile/me/change-password"
-            element={<ChangePassword />}
-          />
-          <Route path="/profile/:id" element={<Profile />} />
-          <Route path="/post/:id" element={<PostWithID />} />
-          <Route path="/follower" element={<UserMessages />} />
-          <Route path="/search" element={<PostSearch />} />
-        </Routes>
-      </HeaderWrapper>
+      <AuthProvider>
+        <HeaderWrapper>
+          <Routes>
+            {/* Default: redirect root to /home */}
+            <Route path="/" element={<Navigate to="/home" replace />} />
+
+            {/* Public login page */}
+            <Route path="/login" element={<Index />} />
+
+            {/* Public routes */}
+            <Route path="/home" element={<HomePage />} />
+            <Route path="/post/:id" element={<PostWithID />} />
+            <Route path="/search" element={<PostSearch />} />
+            <Route path="/profile/:id" element={<Profile />} />
+
+            {/* Protected routes — require authentication */}
+            <Route
+              path="/profile/me"
+              element={
+                <ProtectedRoute>
+                  <Profile />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/profile/me/edit"
+              element={
+                <ProtectedRoute>
+                  <EditProfile />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/profile/me/change-password"
+              element={
+                <ProtectedRoute>
+                  <ChangePassword />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/follower"
+              element={
+                <ProtectedRoute>
+                  <UserMessages />
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </HeaderWrapper>
+      </AuthProvider>
     </Router>
   );
 }
 
 export default App;
+

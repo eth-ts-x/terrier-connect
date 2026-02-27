@@ -27,6 +27,7 @@ import {
   unfollowUser,
 } from "../services/userService";
 import { listPosts, getCommentsByAuthor } from "../services/postService";
+import { useAuth } from "../context/AuthContext";
 
 function TabPanel({ children, value, index, ...other }) {
   return (
@@ -43,9 +44,10 @@ function TabPanel({ children, value, index, ...other }) {
 }
 
 export default function Profile() {
-  const { id } = useParams(); // Get the `id` parameter from the URL
-  const navigate = useNavigate(); // For navigation
-  const [user, setUser] = useState(null); // User information state
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { user: authUser } = useAuth();
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true); // Loading state
   const [error, setError] = useState(null); // Error state
   const [isFollowing, setIsFollowing] = useState(false); // Follow state
@@ -56,19 +58,18 @@ export default function Profile() {
   const [following, setFollowing] = useState([]); // User's following
   const [followers, setFollowers] = useState([]); // User's followers
 
-  // Determine the userId based on the URL or localStorage
+  // Determine the userId based on the URL or logged-in user
   const userId =
     id === undefined || id === "me"
-      ? parseInt(localStorage.getItem("userId"), 10)
+      ? authUser?.id
       : parseInt(id, 10);
 
   // Get the logged-in user's id for comparison
-  const loggedInUserId = parseInt(localStorage.getItem("userId"), 10);
+  const loggedInUserId = authUser?.id;
 
   useEffect(() => {
-    if (!userId || isNaN(userId)) {
-      alert("Please log in to view your profile.");
-      navigate("/");
+    if (!userId) {
+      navigate("/login");
       return;
     }
 
@@ -79,7 +80,7 @@ export default function Profile() {
         setUser(userData);
 
         // Fetch the following list only if viewing another user's profile
-        if (userId !== loggedInUserId) {
+        if (userId !== loggedInUserId && loggedInUserId) {
           const followingResponse = await getFollowing(loggedInUserId);
           setFollowingList(followingResponse.results || []);
 

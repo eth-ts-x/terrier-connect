@@ -27,6 +27,7 @@ while True:
 END
 
 echo "Applying database migrations..."
+python manage.py makemigrations --noinput
 python manage.py migrate --noinput
 
 # Execute the passed command

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   Box,
   TextField,
@@ -16,17 +16,9 @@ const ChangePassword = () => {
     newPassword: "",
     confirmPassword: "",
   });
-  const [loading, setLoading] = useState(false); // For loading state
-  const [error, setError] = useState(null); // For error handling
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   const navigate = useNavigate();
-
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      alert("You must be logged in to change your password.");
-      navigate("/"); // Redirect to the login page
-    }
-  }, [navigate]);
 
   // Handle form input changes
   const handleInputChange = (e) => {

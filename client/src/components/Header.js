@@ -24,6 +24,7 @@ import MoreIcon from "@mui/icons-material/MoreVert";
 import NewPostModal from "./NewPostButton";
 import SearchBar from "./SearchBar";
 import { getPopularHashtags } from "../services/hashtagService";
+import { useAuth } from "../context/AuthContext";
 
 export default function PrimarySearchAppBar() {
   const [anchorEl, setAnchorEl] = useState(null);
@@ -33,6 +34,7 @@ export default function PrimarySearchAppBar() {
   const [modalOpen, setModalOpen] = useState(false);
 
   const navigate = useNavigate();
+  const { logout } = useAuth();
   const isMenuOpen = Boolean(anchorEl);
   const isMobileMenuOpen = Boolean(mobileMoreAnchorEl);
 
@@ -77,10 +79,7 @@ export default function PrimarySearchAppBar() {
   };
 
   const handleLogout = () => {
-    // Clear localStorage and redirect to the home page
-    localStorage.clear();
-    alert("You have been logged out.");
-    navigate("/"); // Redirect to the login/home page
+    logout();
   };
 
   const menuId = "primary-search-account-menu";
