@@ -1,23 +1,46 @@
-version: "3.8"
+# ──────────────────────────────────────────────────────────────────
+# Terrier Connect — local development stack
+# PostgreSQL · Cassandra · Redis · Kafka (KRaft) · Elasticsearch
+# ──────────────────────────────────────────────────────────────────
+
+x-env-common: &env-common
+  DEBUG: "1"
+  DJANGO_SETTINGS_MODULE: terrierconnect.settings
+  DB_HOST: db
+  DB_PORT: "5432"
+  DB_NAME: terrier-connect-dev
+  DB_USER: postgres
+  DB_PASSWORD: CHANGE_ME
+  CASSANDRA_HOSTS: cassandra
+  CASSANDRA_PORT: "9042"
+  CASSANDRA_KEYSPACE: terrier
+  REDIS_URL: redis://redis:6379/0
+  ELASTICSEARCH_URL: http://elasticsearch:9200
+  KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  SECRET_KEY: local-dev-secret-key-change-in-prod
 
 services:
+
+  # ── React client ─────────────────────────────────────────────
   client:
     build:
       context: ./client
       args:
-        - REACT_APP_GOOGLE_MAPS_API_KEY=${REACT_APP_GOOGLE_MAPS_API_KEY}
+        - REACT_APP_GOOGLE_MAPS_API_KEY=${REACT_APP_GOOGLE_MAPS_API_KEY:-}
+        - REACT_APP_API_URL=http://localhost:8000
+        - REACT_APP_GOOGLE_CLIENT_ID=${REACT_APP_GOOGLE_CLIENT_ID:-}
     image: client-tc
     container_name: client
     ports:
       - "3002:80"
     depends_on:
       - server
-    # Need to customize the nginx config for production
     volumes:
       - ./client/nginx_conf/nginx_dev.conf:/etc/nginx/nginx.conf
     networks:
       - tc-network
 
+  # ── Django API server ────────────────────────────────────────
   server:
     build:
       context: ./server
@@ -27,32 +50,250 @@ services:
       - "8000:8000"
     env_file:
       - ./server/.env
+    environment:
+      <<: *env-common
     volumes:
       - ./server:/app
-    environment:
-      - DEBUG=1
+      - media_data:/app/media
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+      cassandra:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      elasticsearch:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
     networks:
       - tc-network
 
-# Currently can use dev DB, don't commit the password to the repo
+  # ── Kafka consumers (same image, different CMD) ─────────────
+  consumer-feed:
+    build:
+      context: ./server
+    image: server-tc
+    container_name: consumer-feed
+    command: ["python", "manage.py", "run_consumer", "--consumer", "feed_fanout"]
+    env_file:
+      - ./server/.env
+    environment:
+      <<: *env-common
+    depends_on:
+      - server
+    restart: unless-stopped
+    networks:
+      - tc-network
+
+  consumer-notification:
+    build:
+      context: ./server
+    image: server-tc
+    container_name: consumer-notification
+    command: ["python", "manage.py", "run_consumer", "--consumer", "notification"]
+    env_file:
+      - ./server/.env
+    environment:
+      <<: *env-common
+    depends_on:
+      - server
+    restart: unless-stopped
+    networks:
+      - tc-network
+
+  consumer-like-counter:
+    build:
+      context: ./server
+    image: server-tc
+    container_name: consumer-like-counter
+    command: ["python", "manage.py", "run_consumer", "--consumer", "like_counter"]
+    env_file:
+      - ./server/.env
+    environment:
+      <<: *env-common
+    depends_on:
+      - server
+    restart: unless-stopped
+    networks:
+      - tc-network
+
+  # ── PostgreSQL ───────────────────────────────────────────────
   db:
     image: postgres:17
+    container_name: tc-postgres
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=CHANGE_ME
-      - POSTGRES_DB=terrier-connect-dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: CHANGE_ME
+      POSTGRES_DB: terrier-connect-dev
     ports:
       - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - tc-network
+
+  # ── Cassandra 4.1 ───────────────────────────────────────────
+  cassandra:
+    image: cassandra:4.1
+    container_name: tc-cassandra
+    ports:
+      - "9042:9042"
+    environment:
+      CASSANDRA_CLUSTER_NAME: TerrierCluster
+      CASSANDRA_DC: datacenter1
+      CASSANDRA_ENDPOINT_SNITCH: SimpleSnitch
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 128M
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'SELECT now() FROM system.local'"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - tc-network
+
+  # ── Redis 7 ─────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: tc-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
+    networks:
+      - tc-network
+
+  # ── Kafka (KRaft — no ZooKeeper) ────────────────────────────
+  kafka:
+    image: apache/kafka:3.7.2
+    container_name: tc-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: "3"
+      KAFKA_DEFAULT_REPLICATION_FACTOR: "1"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_SOCKET_REQUEST_MAX_BYTES: "104857600"
+      CLUSTER_ID: "5L6g3nShT-eMCtK--X86sw"
+    volumes:
+      - kafka_data:/tmp/kraft-combined-logs
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:29092 --list"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - tc-network
+
+  # ── Kafka Connect (Debezium + ES Sink) ──────────────────────
+  kafka-connect:
+    image: debezium/connect:2.7.3.Final
+    container_name: tc-kafka-connect
+    ports:
+      - "8083:8083"
+    environment:
+      BOOTSTRAP_SERVERS: kafka:29092
+      GROUP_ID: tc-connect-cluster
+      CONFIG_STORAGE_TOPIC: _connect-configs
+      OFFSET_STORAGE_TOPIC: _connect-offsets
+      STATUS_STORAGE_TOPIC: _connect-status
+      CONFIG_STORAGE_REPLICATION_FACTOR: "1"
+      OFFSET_STORAGE_REPLICATION_FACTOR: "1"
+      STATUS_STORAGE_REPLICATION_FACTOR: "1"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tc-network
+
+  # ── Elasticsearch 8 ─────────────────────────────────────────
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    container_name: tc-elasticsearch
+    ports:
+      - "9200:9200"
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - tc-network
+
+  # ── Kibana (ES dashboard) ───────────────────────────────────
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.15.0
+    container_name: tc-kibana
+    ports:
+      - "5601:5601"
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tc-network
+
+  # ── Kafka UI ────────────────────────────────────────────────
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    container_name: tc-kafka-ui
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: tc-local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: debezium
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
+    depends_on:
+      kafka:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - tc-network
 
 volumes:
   db_data:
+  cassandra_data:
+  redis_data:
+  kafka_data:
+  es_data:
+  media_data:
 
 networks:
   tc-network:

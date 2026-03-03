@@ -8,6 +8,7 @@ from .views import (
     LogoutView,
     MeView,
     UserViewSet,
+    GoogleLoginView,
 )
 
 router = DefaultRouter()
@@ -20,6 +21,8 @@ urlpatterns = [
     path('logout/', LogoutView.as_view(), name='logout'),
     path('token/refresh/', CookieTokenRefreshView.as_view(), name='token_refresh'),
     path('me/', MeView.as_view(), name='me'),
+    # Google OAuth 2.0
+    path('auth/google/', GoogleLoginView.as_view(), name='google_login'),
     # ViewSet routes (retrieve, follow, unfollow, followers, following, profile, change-password)
     path('', include(router.urls)),
 ]

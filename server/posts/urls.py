@@ -1,15 +1,15 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
-from .views import PostViewSet, CommentViewSet
+from .views import PostViewSet, HealthViewSet
 
-post_router = DefaultRouter()
-post_router.register(r'', PostViewSet, basename='post')
+router = DefaultRouter()
+router.register(r"", PostViewSet, basename="post")
 
-comment_router = DefaultRouter()
-comment_router.register(r'comments', CommentViewSet, basename='comment')
+health_router = DefaultRouter()
+health_router.register(r"health", HealthViewSet, basename="health")
 
 urlpatterns = [
-    path('', include(post_router.urls)),
-    path('', include(comment_router.urls)),
+    path("", include(router.urls)),
+    path("", include(health_router.urls)),
 ]

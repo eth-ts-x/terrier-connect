@@ -1,34 +1,54 @@
 #!/bin/sh
-
-# Exit immediately if a command exits with a non-zero status.
 set -e
 
-echo "Waiting for database..."
-# Simple check to see if we can reach the DB port (requires nothing but /dev/tcp)
-# Or just let it fail and let Docker restart the container if it's not ready.
-# For now, we'll just run migrations.
-python << END
-import os
-import socket
-import time
-import sys
-
-port = int(os.getenv("DB_PORT", "5432"))
+# ── Wait for PostgreSQL ──────────────────────────────────────────
+echo "Waiting for PostgreSQL..."
+python << 'END'
+import os, socket, time
 host = os.getenv("DB_HOST", "db")
-
-while True:
+port = int(os.getenv("DB_PORT", "5432"))
+for _ in range(60):
     try:
-        with socket.create_connection((host, port), timeout=1):
-            print("PostgreSQL started")
+        with socket.create_connection((host, port), timeout=2):
+            print("PostgreSQL is ready")
             break
     except OSError:
-        print(f"PostgreSQL not ready at {host}:{port}, waiting...")
+        print(f"PostgreSQL not ready at {host}:{port}, retrying...")
         time.sleep(1)
+else:
+    print("WARNING: PostgreSQL did not become ready in time.")
 END
 
-echo "Applying database migrations..."
+# ── Wait for Cassandra ───────────────────────────────────────────
+echo "Waiting for Cassandra..."
+python << 'END'
+import os, socket, time
+host = os.getenv("CASSANDRA_HOSTS", "cassandra").split(",")[0]
+port = int(os.getenv("CASSANDRA_PORT", "9042"))
+for _ in range(120):
+    try:
+        with socket.create_connection((host, port), timeout=2):
+            print("Cassandra is ready")
+            break
+    except OSError:
+        print(f"Cassandra not ready at {host}:{port}, retrying...")
+        time.sleep(2)
+else:
+    print("WARNING: Cassandra did not become ready in time.")
+END
+
+# ── Django migrations (PostgreSQL) ───────────────────────────────
+echo "Running PostgreSQL migrations..."
 python manage.py makemigrations --noinput
 python manage.py migrate --noinput
 
-# Execute the passed command
+# ── Cassandra schema initialisation ──────────────────────────────
+echo "Initialising Cassandra keyspace and tables..."
+python manage.py init_cassandra || echo "WARNING: Cassandra init failed (will retry at app startup)"
+
+# ── Elasticsearch index initialisation ───────────────────────────
+echo "Initialising Elasticsearch index..."
+python manage.py init_elasticsearch || echo "WARNING: ES init failed (search will be unavailable until index is created)"
+
+# ── Run the main command ─────────────────────────────────────────
 exec "$@"

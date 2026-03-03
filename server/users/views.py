@@ -13,6 +13,11 @@ from rest_framework import serializers as drf_serializers
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt import exceptions as simplejwt_exceptions
+from rest_framework_simplejwt.tokens import RefreshToken
+
+from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
+from allauth.socialaccount.providers.oauth2.client import OAuth2Client
+from dj_rest_auth.registration.views import SocialLoginView
 
 from .models import UserFollowRel
 from .serializers import (
@@ -259,4 +264,41 @@ class UserViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
             request.user.save()
             return Response({'message': 'Password updated successfully.'})
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# ---------------------------------------------------------------------------
+# Google OAuth 2.0 Login
+# ---------------------------------------------------------------------------
+
+class GoogleLoginView(SocialLoginView):
+    """
+    POST /users/auth/google/
+    Accepts { "access_token": "<google_access_token>" } or
+            { "code": "<authorization_code>" }
+
+    dj-rest-auth + allauth handle:
+      1. Validate the token / exchange the code with Google
+      2. Find-or-create the User (adapter links by email)
+      3. Return JWT tokens as HttpOnly cookies
+    """
+    adapter_class = GoogleOAuth2Adapter
+    callback_url = settings.GOOGLE_OAUTH_CALLBACK_URL
+    client_class = OAuth2Client
+    permission_classes = [AllowAny]
+
+    def get_response(self):
+        """Override to set JWT cookies instead of returning tokens in body."""
+        response = super().get_response()
+        user = self.user
+        refresh = RefreshToken.for_user(user)
+        access_token = str(refresh.access_token)
+        refresh_token = str(refresh)
+        _set_auth_cookies(response, access_token, refresh_token)
+        # Strip tokens from body, add user data
+        response.data.pop("access", None)
+        response.data.pop("refresh", None)
+        response.data.pop("access_token", None)
+        response.data.pop("refresh_token", None)
+        response.data["user"] = UserSerializer(user).data
+        return response
 

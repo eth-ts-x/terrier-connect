@@ -4,11 +4,6 @@ metadata:
   name: app-config
   labels:
     app: terrier-connect
-  annotations:
-    environment: local
-    owner: terrier-connect
-    managed-by: k8s
-    description: "Local development configuration for Django + React"
 data:
   DB_NAME: terrier-connect-dev
   DB_USER: postgres
@@ -16,6 +11,12 @@ data:
   DB_PORT: "5432"
   DEBUG: "1"
   ALLOWED_HOSTS: "localhost,127.0.0.1,server,client"
+  CASSANDRA_HOSTS: cassandra
+  CASSANDRA_PORT: "9042"
+  CASSANDRA_KEYSPACE: terrier
+  REDIS_URL: "redis://redis:6379/0"
+  ELASTICSEARCH_URL: "http://elasticsearch:9200"
+  KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
 ---
 apiVersion: v1
 kind: Secret
@@ -23,23 +24,20 @@ metadata:
   name: app-secrets
   labels:
     app: terrier-connect
-  annotations:
-    environment: local
-    owner: terrier-connect
-    managed-by: k8s
-    description: "Local development secrets for Django"
 type: Opaque
 stringData:
   DB_PASSWORD: "CHANGE_ME"
   SECRET_KEY: "django-insecure-change-me"
+  GOOGLE_CLIENT_ID: ""
+  GOOGLE_CLIENT_SECRET: ""
 ---
+# ── PVCs ───────────────────────────────────────────────────────
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: db-pvc
 spec:
-  accessModes:
-    - ReadWriteOnce
+  accessModes: [ReadWriteOnce]
   resources:
     requests:
       storage: 1Gi
@@ -49,12 +47,52 @@ kind: PersistentVolumeClaim
 metadata:
   name: media-pvc
 spec:
-  accessModes:
-    - ReadWriteOnce
+  accessModes: [ReadWriteOnce]
   resources:
     requests:
       storage: 1Gi
 ---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cassandra-pvc
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 512Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kafka-pvc
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: es-pvc
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+# ── PostgreSQL ─────────────────────────────────────────────────
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -108,10 +146,242 @@ spec:
   selector:
     app: db
   ports:
-    - name: postgres
-      port: 5432
+    - port: 5432
       targetPort: 5432
 ---
+# ── Cassandra ──────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cassandra
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cassandra
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: cassandra
+    spec:
+      containers:
+        - name: cassandra
+          image: cassandra:4.1
+          ports:
+            - containerPort: 9042
+          env:
+            - name: CASSANDRA_CLUSTER_NAME
+              value: TerrierCluster
+            - name: MAX_HEAP_SIZE
+              value: "512M"
+            - name: HEAP_NEWSIZE
+              value: "128M"
+          volumeMounts:
+            - name: cassandra-data
+              mountPath: /var/lib/cassandra
+          readinessProbe:
+            exec:
+              command: ["cqlsh", "-e", "SELECT now() FROM system.local"]
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 10
+          resources:
+            requests:
+              memory: "768Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+      volumes:
+        - name: cassandra-data
+          persistentVolumeClaim:
+            claimName: cassandra-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cassandra
+spec:
+  selector:
+    app: cassandra
+  ports:
+    - port: 9042
+      targetPort: 9042
+---
+# ── Redis ──────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          command: ["redis-server", "--appendonly", "yes"]
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
+      volumes:
+        - name: redis-data
+          persistentVolumeClaim:
+            claimName: redis-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+---
+# ── Kafka (KRaft — apache/kafka) ──────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      containers:
+        - name: kafka
+          image: apache/kafka:3.7.2
+          ports:
+            - containerPort: 29092
+          env:
+            - name: KAFKA_NODE_ID
+              value: "1"
+            - name: KAFKA_PROCESS_ROLES
+              value: broker,controller
+            - name: KAFKA_CONTROLLER_LISTENER_NAMES
+              value: CONTROLLER
+            - name: KAFKA_LISTENERS
+              value: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: PLAINTEXT://kafka:29092
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+              value: 1@kafka:29093
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+              value: "true"
+            - name: CLUSTER_ID
+              value: 5L6g3nShT-eMCtK--X86sw
+          volumeMounts:
+            - name: kafka-data
+              mountPath: /tmp/kraft-combined-logs
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+      volumes:
+        - name: kafka-data
+          persistentVolumeClaim:
+            claimName: kafka-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+spec:
+  selector:
+    app: kafka
+  ports:
+    - port: 29092
+      targetPort: 29092
+---
+# ── Elasticsearch ──────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: elasticsearch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+    spec:
+      containers:
+        - name: elasticsearch
+          image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+          ports:
+            - containerPort: 9200
+          env:
+            - name: discovery.type
+              value: single-node
+            - name: xpack.security.enabled
+              value: "false"
+            - name: ES_JAVA_OPTS
+              value: "-Xms512m -Xmx512m"
+          volumeMounts:
+            - name: es-data
+              mountPath: /usr/share/elasticsearch/data
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: 9200
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "768Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+      volumes:
+        - name: es-data
+          persistentVolumeClaim:
+            claimName: es-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch
+spec:
+  selector:
+    app: elasticsearch
+  ports:
+    - port: 9200
+      targetPort: 9200
+---
+# ── Django API server ──────────────────────────────────────────
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -137,21 +407,20 @@ spec:
                 name: app-config
             - secretRef:
                 name: app-secrets
-          env:
-            - name: media_path
-              value: /app/media
           volumeMounts:
             - name: media-data
               mountPath: /app/media
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /api/posts/health/
               port: 8000
-            initialDelaySeconds: 10
+            initialDelaySeconds: 15
             periodSeconds: 10
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /api/posts/health/
               port: 8000
-            initialDelaySeconds: 20
+            initialDelaySeconds: 30
             periodSeconds: 20
       volumes:
         - name: media-data
@@ -166,10 +435,86 @@ spec:
   selector:
     app: server
   ports:
-    - name: http
-      port: 8000
+    - port: 8000
       targetPort: 8000
 ---
+# ── Kafka Consumers ────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consumer-feed
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: consumer-feed
+  template:
+    metadata:
+      labels:
+        app: consumer-feed
+    spec:
+      containers:
+        - name: consumer
+          image: server-tc
+          imagePullPolicy: IfNotPresent
+          command: ["python", "manage.py", "run_consumer", "--consumer", "feed_fanout"]
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consumer-notification
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: consumer-notification
+  template:
+    metadata:
+      labels:
+        app: consumer-notification
+    spec:
+      containers:
+        - name: consumer
+          image: server-tc
+          imagePullPolicy: IfNotPresent
+          command: ["python", "manage.py", "run_consumer", "--consumer", "notification"]
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consumer-like-counter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: consumer-like-counter
+  template:
+    metadata:
+      labels:
+        app: consumer-like-counter
+    spec:
+      containers:
+        - name: consumer
+          image: server-tc
+          imagePullPolicy: IfNotPresent
+          command: ["python", "manage.py", "run_consumer", "--consumer", "like_counter"]
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+---
+# ── Client (Nginx + React) ────────────────────────────────────
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -177,47 +522,29 @@ metadata:
 data:
   nginx.conf: |
     worker_processes  1;
-
     events {
         worker_connections  1024;
     }
-
     http {
         include       /etc/nginx/mime.types;
         default_type  application/octet-stream;
         sendfile        on;
         keepalive_timeout  65;
-
         server {
             listen 80;
-
             location / {
                 root   /usr/share/nginx/html;
                 try_files $uri $uri/ /index.html;
                 index  index.html index.htm;
             }
-
             location /api/ {
-                add_header Access-Control-Allow-Origin * always;
-                add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS' always;
-                add_header Access-Control-Allow-Headers 'DNT,X-Mx-ReqToken,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization';
-
-                if ($request_method = 'OPTIONS') {
-                       return 204;
-                }
-
                 proxy_pass       http://server:8000;
-                proxy_connect_timeout 1800s;
-                proxy_read_timeout 1800s;
-                proxy_send_timeout 1800s;
                 proxy_set_header X-Real-IP $remote_addr;
-                proxy_redirect off;
                 proxy_set_header Host $host;
                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             }
-
             location /media/ {
-                proxy_pass       http://server:8000/;
+                proxy_pass       http://server:8000/media/;
             }
         }
     }
@@ -248,12 +575,6 @@ spec:
               port: 80
             initialDelaySeconds: 5
             periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /
-              port: 80
-            initialDelaySeconds: 15
-            periodSeconds: 20
           volumeMounts:
             - name: nginx-conf
               mountPath: /etc/nginx/nginx.conf
@@ -272,7 +593,6 @@ spec:
   selector:
     app: client
   ports:
-    - name: http
-      port: 80
+    - port: 80
       targetPort: 80
       nodePort: 30080

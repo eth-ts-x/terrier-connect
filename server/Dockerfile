@@ -1,40 +1,39 @@
-# Start from an official Python image.
-FROM python:3.10-slim
+# ---------- build stage ----------
+FROM python:3.12-slim AS builder
 
-# Set working directory inside the container.
 WORKDIR /app
 
-# Install system dependencies required by Django or other libraries.
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install them first to leverage Docker's layer caching.
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code into the working directory.
+# ---------- runtime stage ----------
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/lib/python3.12 /usr/local/lib/python3.12
+COPY --from=builder /usr/local/bin /usr/local/bin
+
 COPY . .
 
-# Set environment variables (you can override these with docker-compose).
 ENV PYTHONUNBUFFERED=1 \
     DJANGO_SETTINGS_MODULE=terrierconnect.settings
 
-# Collect static files for production (if needed).
-RUN python manage.py collectstatic --noinput
+RUN python manage.py collectstatic --noinput || true
 
-# Expose the port on which Django/Gunicorn will listen.
 EXPOSE 8000
 
-# Copy entrypoint script and set permissions
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Use entrypoint script to automate migrations
 ENTRYPOINT ["/entrypoint.sh"]
-
-# Run the Django development server or Gunicorn in production.
-# For local development/testing, you might use `python manage.py runserver 0.0.0.0:8000`
-# For production, we recommend Gunicorn:
-CMD ["gunicorn", "terrierconnect.wsgi:application", "--bind", "0.0.0.0:8000"]
+CMD ["gunicorn", "terrierconnect.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "4", "--threads", "2"]

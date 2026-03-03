@@ -1,31 +1,25 @@
 # React front-end Dockerfile
-FROM node:22-alpine as build
+FROM node:22-alpine AS build
 
-# Set the working directory in the container
 WORKDIR /app
 
 # Build-time variables for React
 ARG REACT_APP_GOOGLE_MAPS_API_KEY
-ARG REACT_APP_API_BASE_URL=/api
-ARG REACT_APP_MEDIA_BASE_URL=/media
+ARG REACT_APP_API_URL=http://localhost:8000
+ARG REACT_APP_GOOGLE_CLIENT_ID
 ENV REACT_APP_GOOGLE_MAPS_API_KEY=$REACT_APP_GOOGLE_MAPS_API_KEY
-ENV REACT_APP_API_BASE_URL=$REACT_APP_API_BASE_URL
-ENV REACT_APP_MEDIA_BASE_URL=$REACT_APP_MEDIA_BASE_URL
+ENV REACT_APP_API_URL=$REACT_APP_API_URL
+ENV REACT_APP_GOOGLE_CLIENT_ID=$REACT_APP_GOOGLE_CLIENT_ID
 
-# Copy package.json and install dependencies
-COPY package.json package-lock.json ./
-RUN npm install
+COPY package.json package-lock.json* ./
+RUN npm ci --legacy-peer-deps
 
-# Copy the rest of the application code
 COPY . .
-
-# Build the React app for production
 RUN npm run build
 
-# Stage 2: Serve the app using Nginx
+# Serve via Nginx
 FROM nginx:alpine
 
-# Copy the build output to Nginx's default directory
 COPY --from=build /app/build /usr/share/nginx/html
 
 # Use production Nginx config with SPA fallback (try_files)
