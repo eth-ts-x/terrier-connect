@@ -17,6 +17,16 @@ spec:
         - name: consumer
           image: server
           command: ["python", "manage.py", "run_consumer", "--consumer", "like_counter"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          env:
+            - name: SKIP_STARTUP_INIT
+              value: "1"
           envFrom:
             - configMapRef:
                 name: app-config

@@ -9,7 +9,9 @@ import json
 import logging
 import uuid
 from datetime import datetime
+from types import SimpleNamespace
 
+from cassandra.cqlengine.query import BatchQuery
 from django.core.cache import cache
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -33,6 +35,11 @@ from .serializers import (
     CommentCreateSerializer,
 )
 from hashtags.models import Hashtag
+from core.projection_events import (
+    publish_comment_event,
+    publish_like_event,
+    publish_post_event,
+)
 
 logger = logging.getLogger("terrierconnect.posts")
 
@@ -200,13 +207,12 @@ class PostViewSet(viewsets.ViewSet):
 
         now = datetime.utcnow()
         post_id = uuid.uuid4()
-
-        # Single write to Cassandra — CDC handles downstream
-        PostById.create(
+        author_avatar_url = user.avatar_url.url if user.avatar_url else ""
+        result_model = SimpleNamespace(
             post_id=post_id,
             author_id=user.id,
             author_display_name=user.display_name or "",
-            author_avatar_url=user.avatar_url.url if user.avatar_url else "",
+            author_avatar_url=author_avatar_url,
             title=data["title"],
             content=data["content"],
             image_url=image_url,
@@ -216,40 +222,38 @@ class PostViewSet(viewsets.ViewSet):
             update_time=now,
         )
 
-        PostsByUser.create(
-            author_id=user.id,
-            create_time=now,
-            post_id=post_id,
-            title=data["title"],
-            content=data["content"],
-            image_url=image_url,
-            hashtags=hashtags,
-        )
+        with BatchQuery() as batch:
+            PostById.batch(batch).create(
+                post_id=post_id,
+                author_id=user.id,
+                author_display_name=user.display_name or "",
+                author_avatar_url=author_avatar_url,
+                title=data["title"],
+                content=data["content"],
+                image_url=image_url,
+                geolocation=data.get("geolocation", ""),
+                hashtags=hashtags,
+                create_time=now,
+                update_time=now,
+            )
+
+            PostsByUser.batch(batch).create(
+                author_id=user.id,
+                create_time=now,
+                post_id=post_id,
+                title=data["title"],
+                content=data["content"],
+                image_url=image_url,
+                hashtags=hashtags,
+            )
+
+            publish_post_event(op="c", post=result_model, batch=batch)
 
         # Ensure hashtag registry in PG (for trending/autocomplete)
         for tag in hashtags:
             Hashtag.objects.get_or_create(hashtag_text=tag)
 
-        # Index into Elasticsearch (sync fallback — CDC will also index later)
-        try:
-            from core.elasticsearch_service import index_post
-            index_post({
-                "post_id": str(post_id),
-                "title": data["title"],
-                "content": data["content"],
-                "hashtags": hashtags,
-                "author_id": user.id,
-                "author_display_name": user.display_name or "",
-                "author_avatar_url": user.avatar_url.url if user.avatar_url else "",
-                "image_url": image_url,
-                "geolocation": data.get("geolocation", ""),
-                "create_time": now.isoformat(),
-                "update_time": now.isoformat(),
-            })
-        except Exception:
-            logger.warning("ES index_post failed for %s", post_id, exc_info=True)
-
-        result = _post_to_dict(PostById.objects.get(post_id=post_id))
+        result = _post_to_dict(result_model)
         return Response(PostSerializer(result).data, status=status.HTTP_201_CREATED)
 
     # ── UPDATE ───────────────────────────────────────────────────
@@ -275,34 +279,42 @@ class PostViewSet(viewsets.ViewSet):
             hashtags = list(post.hashtags or [])
 
         now = datetime.utcnow()
-        PostById.objects(post_id=post_uuid).update(
+        merged_post = SimpleNamespace(
+            post_id=post_uuid,
+            author_id=post.author_id,
+            author_display_name=getattr(post, "author_display_name", "") or "",
+            author_avatar_url=getattr(post, "author_avatar_url", "") or "",
             title=data.get("title", post.title),
             content=data.get("content", post.content),
+            image_url=getattr(post, "image_url", "") or "",
+            geolocation=data.get("geolocation", getattr(post, "geolocation", "") or ""),
             hashtags=hashtags,
+            create_time=post.create_time,
             update_time=now,
         )
 
-        cache.delete(f"post:{post_uuid}")
-        result = _post_to_dict(PostById.objects.get(post_id=post_uuid))
+        with BatchQuery() as batch:
+            PostById.objects(post_id=post_uuid).batch(batch).update(
+                title=merged_post.title,
+                content=merged_post.content,
+                hashtags=hashtags,
+                geolocation=merged_post.geolocation,
+                update_time=now,
+            )
+            PostsByUser.objects(
+                author_id=post.author_id,
+                create_time=post.create_time,
+                post_id=post_uuid,
+            ).batch(batch).update(
+                title=merged_post.title,
+                content=merged_post.content,
+                image_url=merged_post.image_url,
+                hashtags=hashtags,
+            )
+            publish_post_event(op="u", post=merged_post, batch=batch)
 
-        # Re-index in Elasticsearch (sync fallback)
-        try:
-            from core.elasticsearch_service import index_post
-            index_post({
-                "post_id": str(post_uuid),
-                "title": result["title"],
-                "content": result["content"],
-                "hashtags": result["hashtags"],
-                "author_id": result["author_id"],
-                "author_display_name": result.get("author_display_name", ""),
-                "author_avatar_url": result.get("author_avatar_url", ""),
-                "image_url": result.get("image_url", ""),
-                "geolocation": result.get("geolocation", ""),
-                "create_time": result["create_time"].isoformat() if result.get("create_time") else None,
-                "update_time": result["update_time"].isoformat() if result.get("update_time") else None,
-            })
-        except Exception:
-            logger.warning("ES index_post failed for %s", post_uuid, exc_info=True)
+        cache.delete(f"post:{post_uuid}")
+        result = _post_to_dict(merged_post)
 
         return Response(PostSerializer(result).data)
 
@@ -318,21 +330,16 @@ class PostViewSet(viewsets.ViewSet):
         if not post or post.author_id != request.user.id:
             return Response({"error": "Post not found or not authorised."}, status=status.HTTP_404_NOT_FOUND)
 
-        PostById.objects(post_id=post_uuid).delete()
-        PostsByUser.objects(
-            author_id=post.author_id,
-            create_time=post.create_time,
-            post_id=post_uuid,
-        ).delete()
+        with BatchQuery() as batch:
+            PostById.objects(post_id=post_uuid).batch(batch).delete()
+            PostsByUser.objects(
+                author_id=post.author_id,
+                create_time=post.create_time,
+                post_id=post_uuid,
+            ).batch(batch).delete()
+            publish_post_event(op="d", post=post, batch=batch)
 
         cache.delete(f"post:{post_uuid}")
-
-        # Remove from Elasticsearch (sync fallback)
-        try:
-            from core.elasticsearch_service import delete_post
-            delete_post(str(post_uuid))
-        except Exception:
-            logger.warning("ES delete_post failed for %s", post_uuid, exc_info=True)
 
         return Response({"message": "Post deleted."}, status=status.HTTP_204_NO_CONTENT)
 
@@ -394,21 +401,24 @@ class PostViewSet(viewsets.ViewSet):
             return Response({"error": "Already liked."}, status=status.HTTP_400_BAD_REQUEST)
 
         now = datetime.utcnow()
-        LikesByPost.create(
-            post_id=post_uuid,
-            user_id=request.user.id,
-            post_author_id=post.author_id,
-            create_time=now,
-        )
-        LikesByUser.create(post_id=post_uuid, user_id=request.user.id, create_time=now)
+        with BatchQuery() as batch:
+            LikesByPost.batch(batch).create(
+                post_id=post_uuid,
+                user_id=request.user.id,
+                post_author_id=post.author_id,
+                create_time=now,
+            )
+            LikesByUser.batch(batch).create(post_id=post_uuid, user_id=request.user.id, create_time=now)
+            publish_like_event(
+                op="c",
+                post_id=post_uuid,
+                user_id=request.user.id,
+                post_author_id=post.author_id,
+                create_time=now,
+                batch=batch,
+            )
 
-        # Optimistically update counter
-        row = LikeCount.objects.filter(post_id=post_uuid).first()
-        new_count = (row.count if row else 0) + 1
-        if row:
-            LikeCount.objects(post_id=post_uuid).update(count=new_count)
-        else:
-            LikeCount.create(post_id=post_uuid, count=new_count)
+        new_count = LikesByPost.objects.filter(post_id=post_uuid).count()
 
         cache.delete(f"post:{post_uuid}:like_count")
         cache.delete(f"post:{post_uuid}:liked:{request.user.id}")
@@ -426,12 +436,20 @@ class PostViewSet(viewsets.ViewSet):
         if not existing:
             return Response({"error": "Not liked."}, status=status.HTTP_400_BAD_REQUEST)
 
-        LikesByPost.objects(post_id=post_uuid, user_id=request.user.id).delete()
-        LikesByUser.objects(user_id=request.user.id, post_id=post_uuid).delete()
+        post = PostById.objects.filter(post_id=post_uuid).first()
+        with BatchQuery() as batch:
+            LikesByPost.objects(post_id=post_uuid, user_id=request.user.id).batch(batch).delete()
+            LikesByUser.objects(user_id=request.user.id, post_id=post_uuid).batch(batch).delete()
+            publish_like_event(
+                op="d",
+                post_id=post_uuid,
+                user_id=request.user.id,
+                post_author_id=post.author_id if post else existing.post_author_id,
+                create_time=getattr(existing, "create_time", datetime.utcnow()),
+                batch=batch,
+            )
 
-        row = LikeCount.objects.filter(post_id=post_uuid).first()
-        new_count = max((row.count if row else 1) - 1, 0)
-        LikeCount.objects(post_id=post_uuid).update(count=new_count)
+        new_count = LikesByPost.objects.filter(post_id=post_uuid).count()
 
         cache.delete(f"post:{post_uuid}:like_count")
         cache.delete(f"post:{post_uuid}:liked:{request.user.id}")
@@ -519,17 +537,32 @@ class PostViewSet(viewsets.ViewSet):
         comment_id = uuid.uuid4()
         parent_id = serializer.validated_data.get("parent_id")
 
-        CommentsByPost.create(
-            post_id=post_uuid,
-            create_time=now,
-            comment_id=comment_id,
-            author_id=user.id,
-            author_display_name=user.display_name or "",
-            author_avatar_url=user.avatar_url.url if user.avatar_url else "",
-            content=serializer.validated_data["content"],
-            parent_id=parent_id,
-            post_author_id=post.author_id,
-        )
+        with BatchQuery() as batch:
+            CommentsByPost.batch(batch).create(
+                post_id=post_uuid,
+                create_time=now,
+                comment_id=comment_id,
+                author_id=user.id,
+                author_display_name=user.display_name or "",
+                author_avatar_url=user.avatar_url.url if user.avatar_url else "",
+                content=serializer.validated_data["content"],
+                parent_id=parent_id,
+                post_author_id=post.author_id,
+            )
+
+            publish_comment_event(
+                op="c",
+                post_id=post_uuid,
+                comment_id=comment_id,
+                author_id=user.id,
+                post_author_id=post.author_id,
+                content=serializer.validated_data["content"],
+                create_time=now,
+                parent_id=parent_id,
+                author_display_name=user.display_name or "",
+                author_avatar_url=user.avatar_url.url if user.avatar_url else None,
+                batch=batch,
+            )
 
         return Response(
             CommentSerializer({

@@ -163,6 +163,8 @@ SESSION_ENGINE = "django.contrib.sessions.backends.cache"
 
 # ── Kafka ────────────────────────────────────────────────────────
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+PROJECTION_EVENTS_ENABLED = os.getenv("PROJECTION_EVENTS_ENABLED", "1" if DEBUG else "0") == "1"
+PROJECTION_OUTBOX_SHARDS = int(os.getenv("PROJECTION_OUTBOX_SHARDS", "4"))
 
 # ── Password validation ─────────────────────────────────────────
 AUTH_PASSWORD_VALIDATORS = [

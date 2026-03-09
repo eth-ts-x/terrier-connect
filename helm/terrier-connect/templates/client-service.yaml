@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "terrier-connect.fullname" . }}-client
+  labels:
+    {{- include "terrier-connect.labels" . | nindent 4 }}
+    app.kubernetes.io/component: client
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "terrier-connect.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: client
+  ports:
+    - name: http
+      port: {{ .Values.client.service.port }}
+      targetPort: 80

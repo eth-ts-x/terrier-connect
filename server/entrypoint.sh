@@ -37,18 +37,22 @@ else:
     print("WARNING: Cassandra did not become ready in time.")
 END
 
-# ── Django migrations (PostgreSQL) ───────────────────────────────
-echo "Running PostgreSQL migrations..."
-python manage.py makemigrations --noinput
-python manage.py migrate --noinput
+if [ "${SKIP_STARTUP_INIT:-0}" != "1" ]; then
+    # ── Django migrations (PostgreSQL) ─────────────────────────────
+    echo "Running PostgreSQL migrations..."
+    python manage.py makemigrations --noinput
+    python manage.py migrate --noinput
 
-# ── Cassandra schema initialisation ──────────────────────────────
-echo "Initialising Cassandra keyspace and tables..."
-python manage.py init_cassandra || echo "WARNING: Cassandra init failed (will retry at app startup)"
+    # ── Cassandra schema initialisation ────────────────────────────
+    echo "Initialising Cassandra keyspace and tables..."
+    python manage.py init_cassandra || echo "WARNING: Cassandra init failed (will retry at app startup)"
 
-# ── Elasticsearch index initialisation ───────────────────────────
-echo "Initialising Elasticsearch index..."
-python manage.py init_elasticsearch || echo "WARNING: ES init failed (search will be unavailable until index is created)"
+    # ── Elasticsearch index initialisation ─────────────────────────
+    echo "Initialising Elasticsearch index..."
+    python manage.py init_elasticsearch || echo "WARNING: ES init failed (search will be unavailable until index is created)"
+else
+    echo "Skipping startup initialisation (SKIP_STARTUP_INIT=1)"
+fi
 
 # ── Run the main command ─────────────────────────────────────────
 exec "$@"

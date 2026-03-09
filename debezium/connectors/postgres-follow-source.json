@@ -1,0 +1,31 @@
+{
+  "name": "postgres-follow-source",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "tasks.max": "1",
+    "database.hostname": "db",
+    "database.port": "5432",
+    "database.user": "postgres",
+    "database.password": "CHANGE_ME",
+    "database.dbname": "terrier-connect-dev",
+    "topic.prefix": "postgres",
+    "schema.include.list": "public",
+    "table.include.list": "public.users_userfollowrel",
+    "plugin.name": "pgoutput",
+    "publication.autocreate.mode": "all_tables",
+    "publication.name": "tc_follow_pub",
+    "slot.name": "tc_follow_slot",
+    "heartbeat.topics.prefix": "__debezium-heartbeat",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": false,
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": false,
+    "snapshot.mode": "initial",
+    "heartbeat.interval.ms": 30000,
+    "tombstones.on.delete": false,
+    "transforms": "unwrap",
+    "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
+    "transforms.unwrap.drop.tombstones": true,
+    "transforms.unwrap.add.fields": "op,table,source.ts_ms"
+  }
+}

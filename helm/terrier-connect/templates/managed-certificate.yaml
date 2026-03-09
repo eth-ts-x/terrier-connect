@@ -1,0 +1,13 @@
+{{- if and .Values.ingress.enabled (hasKey .Values.ingress.annotations "networking.gke.io/managed-certificates") }}
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: {{ index .Values.ingress.annotations "networking.gke.io/managed-certificates" | quote }}
+  labels:
+    {{- include "terrier-connect.labels" . | nindent 4 }}
+spec:
+  domains:
+    {{- range .Values.ingress.hosts }}
+    - {{ .host }}
+    {{- end }}
+{{- end }}

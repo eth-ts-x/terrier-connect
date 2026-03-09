@@ -4,8 +4,10 @@ resources:
   - server-serviceaccount.yaml
   - server-deployment.yaml
   - server-service.yaml
+  - consumer-outbox-relay-deployment.yaml
   - consumer-feed-deployment.yaml
   - consumer-notification-deployment.yaml
   - consumer-like-counter-deployment.yaml
+  - consumer-search-indexer-deployment.yaml
   - client-deployment.yaml
   - client-service.yaml

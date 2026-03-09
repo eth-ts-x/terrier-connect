@@ -1,22 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: consumer-feed
+  name: consumer-outbox-relay
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: consumer-feed
+      app: consumer-outbox-relay
   template:
     metadata:
       labels:
-        app: consumer-feed
+        app: consumer-outbox-relay
     spec:
       serviceAccountName: server
       containers:
         - name: consumer
           image: server
-          command: ["python", "manage.py", "run_consumer", "--consumer", "feed_fanout"]
+          command: ["python", "manage.py", "run_outbox_relay", "--poll-interval", "1.0"]
           resources:
             requests:
               cpu: 100m

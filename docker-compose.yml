@@ -27,16 +27,38 @@ services:
       context: ./client
       args:
         - REACT_APP_GOOGLE_MAPS_API_KEY=${REACT_APP_GOOGLE_MAPS_API_KEY:-}
-        - REACT_APP_API_URL=http://localhost:8000
+        - REACT_APP_API_BASE_URL=/api
+        - REACT_APP_MEDIA_BASE_URL=/media
+        - REACT_APP_GRAPHQL_URL=/graphql
         - REACT_APP_GOOGLE_CLIENT_ID=${REACT_APP_GOOGLE_CLIENT_ID:-}
     image: client-tc
     container_name: client
     ports:
       - "3002:80"
     depends_on:
+      - gateway
       - server
     volumes:
       - ./client/nginx_conf/nginx_dev.conf:/etc/nginx/nginx.conf
+    networks:
+      - tc-network
+
+  # ── Apollo GraphQL gateway ──────────────────────────────────
+  gateway:
+    build:
+      context: ./gateway
+    image: gateway-tc
+    container_name: gateway
+    ports:
+      - "4000:4000"
+    environment:
+      PORT: "4000"
+      DJANGO_API_URL: http://server:8000
+      CORS_ORIGIN: http://localhost:3002,http://localhost:4000
+      NODE_ENV: development
+    depends_on:
+      - server
+    restart: unless-stopped
     networks:
       - tc-network
 
@@ -80,6 +102,7 @@ services:
       - ./server/.env
     environment:
       <<: *env-common
+      SKIP_STARTUP_INIT: "1"
     depends_on:
       - server
     restart: unless-stopped
@@ -96,6 +119,7 @@ services:
       - ./server/.env
     environment:
       <<: *env-common
+      SKIP_STARTUP_INIT: "1"
     depends_on:
       - server
     restart: unless-stopped
@@ -112,8 +136,44 @@ services:
       - ./server/.env
     environment:
       <<: *env-common
+      SKIP_STARTUP_INIT: "1"
     depends_on:
       - server
+    restart: unless-stopped
+    networks:
+      - tc-network
+
+  consumer-search-indexer:
+    build:
+      context: ./server
+    image: server-tc
+    container_name: consumer-search-indexer
+    command: ["python", "manage.py", "run_consumer", "--consumer", "search_indexer"]
+    env_file:
+      - ./server/.env
+    environment:
+      <<: *env-common
+      SKIP_STARTUP_INIT: "1"
+    depends_on:
+      - server
+    restart: unless-stopped
+    networks:
+      - tc-network
+
+  outbox-relay:
+    build:
+      context: ./server
+    image: server-tc
+    container_name: outbox-relay
+    command: ["python", "manage.py", "run_outbox_relay", "--poll-interval", "1.0"]
+    env_file:
+      - ./server/.env
+    environment:
+      <<: *env-common
+      SKIP_STARTUP_INIT: "1"
+    depends_on:
+      - server
+      - kafka
     restart: unless-stopped
     networks:
       - tc-network
@@ -122,6 +182,14 @@ services:
   db:
     image: postgres:17
     container_name: tc-postgres
+    command:
+      - postgres
+      - -c
+      - wal_level=logical
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_replication_slots=10
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: CHANGE_ME
@@ -208,6 +276,30 @@ services:
     networks:
       - tc-network
 
+  topic-init:
+    image: apache/kafka:3.7.2
+    container_name: tc-topic-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        for topic in \
+          cassandra.terrier.post_by_id \
+          cassandra.terrier.likes_by_post \
+          cassandra.terrier.comments_by_post \
+          postgres.public.users_userfollowrel \
+          __debezium-heartbeat.postgres \
+          dlq-elasticsearch-posts
+        do
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic "$${topic}" --partitions 3 --replication-factor 1
+        done
+    restart: "no"
+    networks:
+      - tc-network
+
   # ── Kafka Connect (Debezium + ES Sink) ──────────────────────
   kafka-connect:
     image: debezium/connect:2.7.3.Final
@@ -226,9 +318,72 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      topic-init:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      - tc-network
+
+  connect-init:
+    image: curlimages/curl:8.10.1
+    container_name: tc-connect-init
+    depends_on:
+      kafka-connect:
+        condition: service_started
+      db:
+        condition: service_healthy
+    environment:
+      DB_PASSWORD: CHANGE_ME
+    command:
+      - sh
+      - -ec
+      - |
+        until curl -sf http://kafka-connect:8083/connectors >/dev/null; do
+          echo "Waiting for Kafka Connect..."
+          sleep 2
+        done
+
+        cat >/tmp/postgres-follow-source.json <<EOF
+        {
+          "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+          "tasks.max": "1",
+          "database.hostname": "db",
+          "database.port": "5432",
+          "database.user": "postgres",
+          "database.password": "$${DB_PASSWORD}",
+          "database.dbname": "terrier-connect-dev",
+          "topic.prefix": "postgres",
+          "schema.include.list": "public",
+          "table.include.list": "public.users_userfollowrel",
+          "plugin.name": "pgoutput",
+          "publication.autocreate.mode": "all_tables",
+          "publication.name": "tc_follow_pub",
+          "slot.name": "tc_follow_slot",
+          "heartbeat.topics.prefix": "__debezium-heartbeat",
+          "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+          "key.converter.schemas.enable": false,
+          "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+          "value.converter.schemas.enable": false,
+          "snapshot.mode": "initial",
+          "heartbeat.interval.ms": 30000,
+          "tombstones.on.delete": false,
+          "transforms": "unwrap",
+          "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
+          "transforms.unwrap.drop.tombstones": true,
+          "transforms.unwrap.add.fields": "op,table,source.ts_ms"
+        }
+        EOF
+
+        curl -sf -X PUT \
+          -H 'Content-Type: application/json' \
+          --data @/tmp/postgres-follow-source.json \
+          http://kafka-connect:8083/connectors/postgres-follow-source/config
+
+        echo "Kafka Connect connectors:" 
+        curl -sf http://kafka-connect:8083/connectors
+    restart: "no"
     networks:
       - tc-network
 

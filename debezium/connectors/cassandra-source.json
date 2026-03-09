@@ -1,0 +1,28 @@
+{
+  "name": "cassandra-source",
+  "config": {
+    "connector.class": "io.debezium.connector.cassandra.Cassandra4Connector",
+    "tasks.max": "1",
+    "commit.log.relocation.dir": "/tmp",
+    "cassandra.cdc.dir": "/tmp",
+    "datastax-java-driver.basic.contact-points": "cassandra:9042",
+    "cassandra.config": "/kafka/connect/cassandra.yaml",
+    "http.port": "8002",
+    "cassandra.driver.config.file": "/kafka/connect/application.conf",
+    "cassandra.port": "9042",
+    "datastax-java-driver.basic.load-balancing-policy.local-datacenter": "datacenter1",
+    "cassandra.keyspace": "terrier",
+    "cassandra.table.include.list": "terrier.post_by_id,terrier.likes_by_post,terrier.comments_by_post",
+    "topic.prefix": "cassandra",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": false,
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": false,
+    "snapshot.mode": "initial",
+    "tombstones.on.delete": false,
+    "transforms": "unwrap",
+    "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
+    "transforms.unwrap.drop.tombstones": true,
+    "transforms.unwrap.add.fields": "op,table,source.ts_ms"
+  }
+}

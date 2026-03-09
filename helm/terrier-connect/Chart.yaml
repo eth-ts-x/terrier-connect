@@ -1,0 +1,6 @@
+apiVersion: v2
+name: terrier-connect
+description: App-only Helm chart for Terrier Connect workloads
+version: 0.1.0
+appVersion: "1.0.0"
+type: application

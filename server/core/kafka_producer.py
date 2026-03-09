@@ -5,6 +5,7 @@ Configured with idempotent delivery (acks=all, enable.idempotence=true)
 to guarantee at-least-once semantics with dedup at the broker level.
 """
 
+import atexit
 import json
 import logging
 
@@ -47,6 +48,17 @@ def _delivery_callback(err, msg):
         logger.debug("Kafka delivered: topic=%s partition=%s", msg.topic(), msg.partition())
 
 
+def flush_events(timeout: float = 5.0):
+    producer = _get_producer()
+    if producer is None:
+        return 0
+
+    remaining = producer.flush(timeout)
+    if remaining:
+        logger.warning("Kafka flush timed out with %d message(s) still pending", remaining)
+    return remaining
+
+
 def send_event(topic: str, key: str, payload: dict):
     """
     Publish a JSON event to Kafka. Non-blocking (buffered).
@@ -64,3 +76,35 @@ def send_event(topic: str, key: str, payload: dict):
         callback=_delivery_callback,
     )
     producer.poll(0)  # trigger callback delivery
+
+
+def send_event_sync(topic: str, key: str, payload: dict, timeout: float = 5.0):
+    """Publish a JSON event to Kafka and wait for broker acknowledgement."""
+    producer = _get_producer()
+    if producer is None:
+        raise RuntimeError(f"Kafka unavailable for topic={topic}")
+
+    errors: list[str] = []
+
+    def _sync_callback(err, msg):
+        if err:
+            errors.append(str(err))
+            logger.error("Kafka delivery failed: %s", err)
+        else:
+            logger.debug("Kafka delivered: topic=%s partition=%s", msg.topic(), msg.partition())
+
+    producer.produce(
+        topic=topic,
+        key=key.encode("utf-8") if isinstance(key, str) else key,
+        value=json.dumps(payload, default=str).encode("utf-8"),
+        callback=_sync_callback,
+    )
+    producer.poll(0)
+    remaining = flush_events(timeout)
+    if remaining:
+        raise RuntimeError(f"Kafka flush timed out with {remaining} pending message(s)")
+    if errors:
+        raise RuntimeError(errors[0])
+
+
+atexit.register(flush_events)

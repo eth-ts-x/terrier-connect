@@ -22,6 +22,7 @@ steps:
           --build-arg REACT_APP_GOOGLE_MAPS_API_KEY=$$_MAPS_API_KEY \
           --build-arg REACT_APP_API_BASE_URL=${_REACT_APP_API_BASE_URL} \
           --build-arg REACT_APP_MEDIA_BASE_URL=${_REACT_APP_MEDIA_BASE_URL} \
+          --build-arg REACT_APP_GRAPHQL_URL=${_REACT_APP_GRAPHQL_URL} \
           -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:${BUILD_ID} \
           -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:latest \
           ./client
@@ -36,19 +37,33 @@ steps:
            './server']
     id: 'Build Server'
 
-  # 3. Push Client Images to Artifact Registry
+  # 3. Build Gateway Image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build',
+           '-t', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/gateway:${BUILD_ID}',
+           '-t', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/gateway:latest',
+           './gateway']
+    id: 'Build Gateway'
+
+  # 4. Push Client Images to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client']
     id: 'Push Client'
     waitFor: ['Build Client']
 
-  # 4. Push Server Images to Artifact Registry
+  # 5. Push Server Images to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server']
     id: 'Push Server'
     waitFor: ['Build Server']
 
-  # 5. Configure kubectl (no Terraform dependency — cluster already exists)
+  # 6. Push Gateway Images to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/gateway']
+    id: 'Push Gateway'
+    waitFor: ['Build Gateway']
+
+  # 7. Configure kubectl (no Terraform dependency — cluster already exists)
   - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args:
@@ -56,81 +71,56 @@ steps:
       - |
         gcloud container clusters get-credentials ${_CLUSTER_NAME} --region ${_REGION}
     id: 'Get GKE Credentials'
-    waitFor: ['Push Client', 'Push Server']
+    waitFor: ['Push Client', 'Push Server', 'Push Gateway']
 
-  # 6. Render cluster-vars.env and app-secrets.env for Kustomize
+  # 8. Render Helm values and deploy release
   - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        cat > k8s/overlays/prod/cluster-vars.env << EOF
-        DOMAIN_NAME=${_DOMAIN_NAME}
-        WWW_DOMAIN_NAME=www.${_DOMAIN_NAME}
-        ALLOWED_HOSTS=${_DOMAIN_NAME},www.${_DOMAIN_NAME}
-        CLOUDSQL_INSTANCE=${PROJECT_ID}:${_REGION}:${_CLOUDSQL_INSTANCE_NAME}
-        GS_PROJECT_ID=${PROJECT_ID}
-        GKE_SA_EMAIL=terrier-connect-gke-sa@${PROJECT_ID}.iam.gserviceaccount.com
+        curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+        cat > /workspace/helm/terrier-connect/ci-values.generated.yaml << EOF
+        client:
+          image:
+            repository: ${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client
+            tag: ${BUILD_ID}
+        server:
+          image:
+            repository: ${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server
+            tag: ${BUILD_ID}
+        gateway:
+          image:
+            repository: ${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/gateway
+            tag: ${BUILD_ID}
+          corsOrigin: https://${_DOMAIN_NAME},https://www.${_DOMAIN_NAME}
+        appConfig:
+          ALLOWED_HOSTS: ${_DOMAIN_NAME},www.${_DOMAIN_NAME}
+          GS_PROJECT_ID: ${PROJECT_ID}
+        secrets:
+          DB_PASSWORD: $$_DB_PASSWORD
+          SECRET_KEY: $$_SECRET_KEY
+        serviceAccount:
+          annotations:
+            iam.gke.io/gcp-service-account: terrier-connect-gke-sa@${PROJECT_ID}.iam.gserviceaccount.com
+        cloudSqlProxy:
+          enabled: true
+          instanceConnectionName: ${PROJECT_ID}:${_REGION}:${_CLOUDSQL_INSTANCE_NAME}
+        ingress:
+          hosts:
+            - host: ${_DOMAIN_NAME}
+            - host: www.${_DOMAIN_NAME}
         EOF
-        cat > k8s/overlays/prod/app-secrets.env << EOF
-        DB_PASSWORD=$$_DB_PASSWORD
-        SECRET_KEY=$$_SECRET_KEY
-        EOF
-        echo "--- Rendered cluster-vars.env ---"
-        cat k8s/overlays/prod/cluster-vars.env
+        helm lint /workspace/helm/terrier-connect -f /workspace/helm/terrier-connect/ci-values.generated.yaml
+        helm upgrade --install ${_HELM_RELEASE_NAME} /workspace/helm/terrier-connect \
+          --namespace ${_K8S_NAMESPACE} \
+          --create-namespace \
+          -f /workspace/helm/terrier-connect/ci-values.generated.yaml \
+          --wait \
+          --timeout 10m
     secretEnv: ['_DB_PASSWORD', '_SECRET_KEY']
-    id: 'Render cluster-vars'
+    id: 'Helm Deploy'
     waitFor: ['Get GKE Credentials']
-
-  # 7. Deploy Kubernetes manifests (prod overlay)
-  - name: 'gcr.io/cloud-builders/kubectl'
-    args: ['apply', '-k', 'k8s/overlays/prod']
-    env:
-      - 'CLOUDSDK_COMPUTE_REGION=${_REGION}'
-      - 'CLOUDSDK_CONTAINER_CLUSTER=${_CLUSTER_NAME}'
-    id: 'Kustomize Apply'
-    waitFor: ['Render cluster-vars']
-
-  # 8. Update images to current build
-  - name: 'gcr.io/cloud-builders/kubectl'
-    args:
-      - 'set'
-      - 'image'
-      - 'deployment/server'
-      - 'server=${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server:${BUILD_ID}'
-    env:
-      - 'CLOUDSDK_COMPUTE_REGION=${_REGION}'
-      - 'CLOUDSDK_CONTAINER_CLUSTER=${_CLUSTER_NAME}'
-    id: 'Update Server Image'
-    waitFor: ['Kustomize Apply']
-
-  - name: 'gcr.io/cloud-builders/kubectl'
-    args:
-      - 'set'
-      - 'image'
-      - 'deployment/client'
-      - 'client=${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:${BUILD_ID}'
-    env:
-      - 'CLOUDSDK_COMPUTE_REGION=${_REGION}'
-      - 'CLOUDSDK_CONTAINER_CLUSTER=${_CLUSTER_NAME}'
-    id: 'Update Client Image'
-    waitFor: ['Kustomize Apply']
-
-  - name: 'gcr.io/cloud-builders/kubectl'
-    args: ['rollout', 'status', 'deployment/server']
-    env:
-      - 'CLOUDSDK_COMPUTE_REGION=${_REGION}'
-      - 'CLOUDSDK_CONTAINER_CLUSTER=${_CLUSTER_NAME}'
-    id: 'Rollout Server'
-    waitFor: ['Update Server Image']
-
-  - name: 'gcr.io/cloud-builders/kubectl'
-    args: ['rollout', 'status', 'deployment/client']
-    env:
-      - 'CLOUDSDK_COMPUTE_REGION=${_REGION}'
-      - 'CLOUDSDK_CONTAINER_CLUSTER=${_CLUSTER_NAME}'
-    id: 'Rollout Client'
-    waitFor: ['Update Client Image']
 
 availableSecrets:
   secretManager:
@@ -146,14 +136,19 @@ substitutions:
   _CLUSTER_NAME: terrier-connect-gke
   _DOMAIN_NAME: example.com
   _CLOUDSQL_INSTANCE_NAME: terrier-connect-db
+  _K8S_NAMESPACE: terrier-connect
+  _HELM_RELEASE_NAME: terrier-connect
   _REACT_APP_API_BASE_URL: /api
   _REACT_APP_MEDIA_BASE_URL: /media
+  _REACT_APP_GRAPHQL_URL: /graphql
 
 images:
   - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:${BUILD_ID}'
   - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:latest'
   - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server:${BUILD_ID}'
   - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server:latest'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/gateway:${BUILD_ID}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/gateway:latest'
 
 options:
   logging: CLOUD_LOGGING_ONLY

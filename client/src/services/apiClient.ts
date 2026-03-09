@@ -1,9 +1,10 @@
 import axios from "axios";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:8000";
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || "/api";
+const MEDIA_BASE_URL = process.env.REACT_APP_MEDIA_BASE_URL || API_BASE_URL;
 
 const apiClient = axios.create({
-  baseURL: `${API_URL}/api`,
+  baseURL: API_BASE_URL,
   withCredentials: true,
   headers: { "Content-Type": "application/json" },
 });
@@ -21,8 +22,9 @@ apiClient.interceptors.response.use(
 
 export function resolveMediaUrl(path: string | null | undefined): string | null {
   if (!path) return null;
-  if (path.startsWith("http")) return path;
-  return `${API_URL}${path}`;
+  if (/^https?:\/\//i.test(path)) return path;
+  if (path.startsWith("/")) return path;
+  return `${MEDIA_BASE_URL}/${path}`;
 }
 
 export default apiClient;

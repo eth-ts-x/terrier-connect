@@ -46,6 +46,7 @@ def connect_cassandra():
 
 def ensure_schema():
     """Create keyspace and sync all Cassandra tables. Idempotent."""
+    from core.cassandra_models import ProjectionOutbox
     from posts.cassandra_models import (
         PostById,
         PostsByUser,
@@ -73,6 +74,7 @@ def ensure_schema():
         LikeCount,
         CommentsByPost,
         NotificationsByUser,
+        ProjectionOutbox,
     ]
     for model in tables:
         sync_table(model, keyspaces=[settings.CASSANDRA_KEYSPACE], connections=["default"])
