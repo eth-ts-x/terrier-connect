@@ -1,0 +1,31 @@
+{
+  "name": "{{ .Values.debezium.connectorName }}",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "tasks.max": "1",
+    "database.hostname": "{{ .Values.debezium.postgres.hostname }}",
+    "database.port": "{{ .Values.debezium.postgres.port }}",
+    "database.user": "${DEBEZIUM_DB_USER}",
+    "database.password": "${DEBEZIUM_DB_PASSWORD}",
+    "database.dbname": "{{ .Values.debezium.postgres.dbname }}",
+    "topic.prefix": "{{ .Values.debezium.postgres.topicPrefix }}",
+    "schema.include.list": "{{ .Values.debezium.postgres.schemaIncludeList }}",
+    "table.include.list": "{{ .Values.debezium.postgres.tableIncludeList }}",
+    "plugin.name": "pgoutput",
+    "publication.autocreate.mode": "all_tables",
+    "publication.name": "{{ .Values.debezium.postgres.publicationName }}",
+    "slot.name": "{{ .Values.debezium.postgres.slotName }}",
+    "heartbeat.topics.prefix": "{{ .Values.debezium.postgres.heartbeatTopicsPrefix }}",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": false,
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": false,
+    "snapshot.mode": "{{ .Values.debezium.postgres.snapshotMode }}",
+    "heartbeat.interval.ms": "{{ .Values.debezium.postgres.heartbeatIntervalMs }}",
+    "tombstones.on.delete": false,
+    "transforms": "unwrap",
+    "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
+    "transforms.unwrap.drop.tombstones": true,
+    "transforms.unwrap.add.fields": "op,table,source.ts_ms"
+  }
+}

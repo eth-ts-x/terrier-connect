@@ -27,6 +27,7 @@ appConfig:
   GS_PROJECT_ID: ""
   GS_QUERYSTRING_AUTH: "false"
   PROJECTION_EVENTS_ENABLED: "0"
+  GOOGLE_OAUTH_CALLBACK_URL: ""
 
 secrets:
   DB_PASSWORD: ""
@@ -39,6 +40,27 @@ cloudSqlProxy:
   instanceConnectionName: ""
   image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.11.0
   port: 5432
+
+debezium:
+  enabled: false
+  connectUrl: ""
+  connectorName: postgres-follow-source
+  registerTimeoutSeconds: 180
+  postgres:
+    hostname: ""
+    port: "5432"
+    dbname: terrier-connect-prod
+    topicPrefix: postgres
+    schemaIncludeList: public
+    tableIncludeList: public.users_userfollowrel
+    publicationName: tc_follow_pub
+    slotName: tc_follow_slot
+    heartbeatTopicsPrefix: __debezium-heartbeat
+    snapshotMode: initial
+    heartbeatIntervalMs: "30000"
+  secrets:
+    dbUser: ""
+    dbPassword: ""
 
 client:
   replicaCount: 2

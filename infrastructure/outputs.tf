@@ -28,6 +28,11 @@ output "cloudsql_connection_name" {
   value       = google_sql_database_instance.db.connection_name
 }
 
+output "cloudsql_private_ip_address" {
+  description = "Cloud SQL private IP address"
+  value       = google_sql_database_instance.db.private_ip_address
+}
+
 output "media_bucket_name" {
   description = "GCS bucket for media"
   value       = google_storage_bucket.media.name
@@ -46,4 +51,34 @@ output "ingress_ip_address" {
 output "domain_name" {
   description = "Root domain"
   value       = var.domain_name
+}
+
+output "platform_namespace" {
+  description = "Namespace for shared platform services"
+  value       = kubernetes_namespace_v1.platform.metadata[0].name
+}
+
+output "cassandra_host" {
+  description = "In-cluster Cassandra hostname"
+  value       = local.cassandra_host
+}
+
+output "redis_url" {
+  description = "In-cluster Redis URL"
+  value       = local.redis_url
+}
+
+output "kafka_bootstrap_servers" {
+  description = "In-cluster Kafka bootstrap servers"
+  value       = local.kafka_bootstrap_servers
+}
+
+output "kafka_connect_url" {
+  description = "In-cluster Kafka Connect URL"
+  value       = local.kafka_connect_url
+}
+
+output "elasticsearch_url" {
+  description = "In-cluster Elasticsearch URL"
+  value       = local.elasticsearch_url
 }

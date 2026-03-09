@@ -1,0 +1,11 @@
+{{- if and .Values.debezium.enabled .Values.debezium.connectUrl }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "terrier-connect.fullname" . }}-debezium-connectors
+  labels:
+    {{- include "terrier-connect.labels" . | nindent 4 }}
+data:
+  postgres-follow-source.json: |
+{{ tpl (.Files.Get "files/debezium/postgres-follow-source.json.tpl") . | indent 4 }}
+{{- end }}

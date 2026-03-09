@@ -20,13 +20,14 @@ steps:
       - |
         docker build \
           --build-arg REACT_APP_GOOGLE_MAPS_API_KEY=$$_MAPS_API_KEY \
+          --build-arg REACT_APP_GOOGLE_CLIENT_ID=$$_GOOGLE_CLIENT_ID \
           --build-arg REACT_APP_API_BASE_URL=${_REACT_APP_API_BASE_URL} \
           --build-arg REACT_APP_MEDIA_BASE_URL=${_REACT_APP_MEDIA_BASE_URL} \
           --build-arg REACT_APP_GRAPHQL_URL=${_REACT_APP_GRAPHQL_URL} \
           -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:${BUILD_ID} \
           -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client:latest \
           ./client
-    secretEnv: ['_MAPS_API_KEY']
+    secretEnv: ['_MAPS_API_KEY', '_GOOGLE_CLIENT_ID']
     id: 'Build Client'
 
   # 2. Build Server Image
@@ -96,10 +97,18 @@ steps:
           corsOrigin: https://${_DOMAIN_NAME},https://www.${_DOMAIN_NAME}
         appConfig:
           ALLOWED_HOSTS: ${_DOMAIN_NAME},www.${_DOMAIN_NAME}
+          CASSANDRA_HOSTS: ${_CASSANDRA_HOSTS}
+          REDIS_URL: ${_REDIS_URL}
+          ELASTICSEARCH_URL: ${_ELASTICSEARCH_URL}
+          KAFKA_BOOTSTRAP_SERVERS: ${_KAFKA_BOOTSTRAP_SERVERS}
+          PROJECTION_EVENTS_ENABLED: '${_PROJECTION_EVENTS_ENABLED}'
+          GOOGLE_OAUTH_CALLBACK_URL: https://${_DOMAIN_NAME}/auth/google/callback
           GS_PROJECT_ID: ${PROJECT_ID}
         secrets:
           DB_PASSWORD: $$_DB_PASSWORD
           SECRET_KEY: $$_SECRET_KEY
+          GOOGLE_CLIENT_ID: $$_GOOGLE_CLIENT_ID
+          GOOGLE_CLIENT_SECRET: $$_GOOGLE_CLIENT_SECRET
         serviceAccount:
           annotations:
             iam.gke.io/gcp-service-account: terrier-connect-gke-sa@${PROJECT_ID}.iam.gserviceaccount.com
@@ -111,6 +120,26 @@ steps:
             - host: ${_DOMAIN_NAME}
             - host: www.${_DOMAIN_NAME}
         EOF
+        if [ "${_ENABLE_DEBEZIUM_CONNECTOR_REGISTRATION}" = "true" ]; then
+          : "${_KAFKA_CONNECT_URL:?Set _KAFKA_CONNECT_URL when enabling Debezium connector registration}"
+          : "${_DEBEZIUM_DB_HOST:?Set _DEBEZIUM_DB_HOST when enabling Debezium connector registration}"
+          DEBEZIUM_DB_USER="$(gcloud secrets versions access latest --secret=terrier-connect-debezium-db-user)"
+          DEBEZIUM_DB_PASSWORD="$(gcloud secrets versions access latest --secret=terrier-connect-debezium-db-password)"
+          cat >> /workspace/helm/terrier-connect/ci-values.generated.yaml << EOF
+        debezium:
+          enabled: true
+          connectUrl: ${_KAFKA_CONNECT_URL}
+          postgres:
+            hostname: ${_DEBEZIUM_DB_HOST}
+            port: "${_DEBEZIUM_DB_PORT}"
+            dbname: ${_DEBEZIUM_DB_NAME}
+          secrets:
+            dbUser: |-
+              ${DEBEZIUM_DB_USER}
+            dbPassword: |-
+              ${DEBEZIUM_DB_PASSWORD}
+        EOF
+        fi
         helm lint /workspace/helm/terrier-connect -f /workspace/helm/terrier-connect/ci-values.generated.yaml
         helm upgrade --install ${_HELM_RELEASE_NAME} /workspace/helm/terrier-connect \
           --namespace ${_K8S_NAMESPACE} \
@@ -118,7 +147,7 @@ steps:
           -f /workspace/helm/terrier-connect/ci-values.generated.yaml \
           --wait \
           --timeout 10m
-    secretEnv: ['_DB_PASSWORD', '_SECRET_KEY']
+    secretEnv: ['_DB_PASSWORD', '_SECRET_KEY', '_GOOGLE_CLIENT_ID', '_GOOGLE_CLIENT_SECRET']
     id: 'Helm Deploy'
     waitFor: ['Get GKE Credentials']
 
@@ -130,6 +159,10 @@ availableSecrets:
       env: '_SECRET_KEY'
     - versionName: projects/${PROJECT_ID}/secrets/terrier-connect-maps-api-key/versions/latest
       env: '_MAPS_API_KEY'
+    - versionName: projects/${PROJECT_ID}/secrets/terrier-connect-google-client-id/versions/latest
+      env: '_GOOGLE_CLIENT_ID'
+    - versionName: projects/${PROJECT_ID}/secrets/terrier-connect-google-client-secret/versions/latest
+      env: '_GOOGLE_CLIENT_SECRET'
 
 substitutions:
   _REGION: us-central1
@@ -138,6 +171,16 @@ substitutions:
   _CLOUDSQL_INSTANCE_NAME: terrier-connect-db
   _K8S_NAMESPACE: terrier-connect
   _HELM_RELEASE_NAME: terrier-connect
+  _CASSANDRA_HOSTS: terrier-cassandra.terrier-platform.svc.cluster.local
+  _REDIS_URL: redis://terrier-redis-master.terrier-platform.svc.cluster.local:6379/0
+  _ELASTICSEARCH_URL: http://terrier-elasticsearch.terrier-platform.svc.cluster.local:9200
+  _KAFKA_BOOTSTRAP_SERVERS: terrier-kafka.terrier-platform.svc.cluster.local:9092
+  _ENABLE_DEBEZIUM_CONNECTOR_REGISTRATION: 'false'
+  _KAFKA_CONNECT_URL: http://terrier-kafka-connect.terrier-platform.svc.cluster.local:8083
+  _DEBEZIUM_DB_HOST: ''
+  _DEBEZIUM_DB_PORT: '5432'
+  _DEBEZIUM_DB_NAME: terrier-connect-prod
+  _PROJECTION_EVENTS_ENABLED: '1'
   _REACT_APP_API_BASE_URL: /api
   _REACT_APP_MEDIA_BASE_URL: /media
   _REACT_APP_GRAPHQL_URL: /graphql

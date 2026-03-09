@@ -22,3 +22,4 @@ data:
   GS_PROJECT_ID: {{ .Values.appConfig.GS_PROJECT_ID | quote }}
   GS_QUERYSTRING_AUTH: {{ .Values.appConfig.GS_QUERYSTRING_AUTH | quote }}
   PROJECTION_EVENTS_ENABLED: {{ .Values.appConfig.PROJECTION_EVENTS_ENABLED | quote }}
+  GOOGLE_OAUTH_CALLBACK_URL: {{ .Values.appConfig.GOOGLE_OAUTH_CALLBACK_URL | quote }}

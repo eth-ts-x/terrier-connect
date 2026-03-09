@@ -6,7 +6,7 @@
     "database.hostname": "db",
     "database.port": "5432",
     "database.user": "postgres",
-    "database.password": "CHANGE_ME",
+    "database.password": "${DB_PASSWORD}",
     "database.dbname": "terrier-connect-dev",
     "topic.prefix": "postgres",
     "schema.include.list": "public",

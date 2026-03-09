@@ -254,7 +254,7 @@ infrastructure changes are applied manually via Terraform.
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-Secrets (DB password, Django secret key, Maps API key) are stored in
+Secrets (DB password, Django secret key, Maps API key, Google OAuth client ID, and Google OAuth client secret) are stored in
 **GCP Secret Manager** and injected into builds at runtime — never in git.
 
 ---
@@ -324,15 +324,15 @@ terrier-connect/
 │   ├── requirements.txt
 │   └── Dockerfile
 │
-├── k8s/                        # Kubernetes manifests
-│   ├── base/                   # Base manifests (deployments, services)
+├── helm/                       # Canonical production deployment chart
+│   └── terrier-connect/
+│       ├── values.yaml
+│       └── templates/
+│
+├── k8s/                        # Legacy Kubernetes manifests / reference
+│   ├── base/                   # Base manifests
 │   └── overlays/
-│       └── prod/               # Production overlay (Kustomize)
-│           ├── kustomization.yaml      # Replacements + secret generator
-│           ├── cluster-vars.env.example
-│           ├── app-secrets.env.example
-│           ├── ingress.yaml
-│           └── managed-cert.yaml
+│       └── prod/               # Legacy Kustomize overlay
 │
 ├── infrastructure/             # Terraform IaC
 │   ├── main.tf                 # All GCP resources
@@ -401,6 +401,10 @@ injected into Cloud Build at runtime — nothing sensitive is committed to git.
 | DB password | `terrier-connect-db-password` |
 | Django secret key | `terrier-connect-django-secret-key` |
 | Google Maps API key | `terrier-connect-maps-api-key` |
+| Google OAuth client ID | `terrier-connect-google-client-id` |
+| Google OAuth client secret | `terrier-connect-google-client-secret` |
+| Debezium DB user | `terrier-connect-debezium-db-user` |
+| Debezium DB password | `terrier-connect-debezium-db-password` |
 
 ---
 

@@ -16,6 +16,10 @@ db_user                     = "appuser"
 #   echo -n "your-password" | gcloud secrets versions add terrier-connect-db-password --data-file=-
 #   echo -n "your-secret-key" | gcloud secrets versions add terrier-connect-django-secret-key --data-file=-
 #   echo -n "your-maps-api-key" | gcloud secrets versions add terrier-connect-maps-api-key --data-file=-
+#   echo -n "your-google-client-id" | gcloud secrets versions add terrier-connect-google-client-id --data-file=-
+#   echo -n "your-google-client-secret" | gcloud secrets versions add terrier-connect-google-client-secret --data-file=-
+#   echo -n "your-debezium-db-user" | gcloud secrets versions add terrier-connect-debezium-db-user --data-file=-
+#   echo -n "your-debezium-db-password" | gcloud secrets versions add terrier-connect-debezium-db-password --data-file=-
 db_password                 = "CHANGE_ME"
 
 media_bucket_name   = "terrier-connect-media"
@@ -25,7 +29,14 @@ domain_name   = "example.com"
 dns_zone_name = "terrier-connect-zone"
 
 lb_ip_name            = "terrier-connect-ip"
-k8s_namespace         = "default"
+k8s_namespace         = "terrier-connect"
+platform_namespace    = "terrier-platform"
+k8s_cluster_domain    = "cluster.local"
+platform_storage_class = ""
+redis_storage_size     = "8Gi"
+kafka_storage_size     = "20Gi"
+cassandra_storage_size = "20Gi"
+elasticsearch_storage_size = "20Gi"
 gke_workload_sa_name  = "terrier-connect-gke-sa"
 
 # GitOps trigger
