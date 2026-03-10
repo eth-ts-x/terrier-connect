@@ -81,7 +81,7 @@ This project was developed as part of **CS673 - Software Engineering** at Boston
 | **Terraform** | Infrastructure as Code |
 | **Google Cloud Build** | CI/CD pipeline (GitOps + local) |
 | **GCP Secret Manager** | Secrets management |
-| **Kustomize** | Kubernetes manifest templating |
+| **Helm** | Kubernetes release templating and deployment |
 | **Nginx** | Reverse proxy |
 | **Artifact Registry** | Container image registry |
 
@@ -143,6 +143,7 @@ npm start
 The application will be available at:
 - Frontend: `http://localhost:3000`
 - Backend API: `http://localhost:8000`
+- GraphQL Gateway: `http://localhost:4000/graphql`
 
 ### Docker Deployment
 
@@ -153,6 +154,7 @@ docker-compose up --build
 # Access the application
 # Frontend: http://localhost:3002
 # Backend: http://localhost:8000
+# GraphQL Gateway: http://localhost:4000/graphql
 ```
 
 ---
@@ -168,7 +170,11 @@ docker-compose up --build
 │  │  Home   │  │ Profile │  │  Posts  │  │ Search  │  ...       │
 │  └─────────┘  └─────────┘  └─────────┘  └─────────┘            │
 └─────────────────────────┬───────────────────────────────────────┘
-                          │ HTTP/REST API
+                          │ HTTP / GraphQL
+┌─────────────────────────┴───────────────────────────────────────┐
+│               Gateway (Apollo Server + REST bridge)            │
+└─────────────────────────┬───────────────────────────────────────┘
+                          │ Internal REST / projection APIs
 ┌─────────────────────────┴───────────────────────────────────────┐
 │                    Server (Django REST)                         │
 │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐            │
@@ -234,14 +240,11 @@ infrastructure changes are applied manually via Terraform.
 │              Get GKE Credentials                                │
 │                          │                                      │
 │                          ▼                                      │
-│             Render cluster-vars.env +                           │
-│             app-secrets.env (from Secret Manager)               │
+│             Render Helm values (from substitutions +            │
+│             Secret Manager)                                     │
 │                          │                                      │
 │                          ▼                                      │
-│              kubectl apply -k k8s/overlays/prod                 │
-│                          │                                      │
-│                          ▼                                      │
-│              kubectl set image + rollout status                 │
+│              helm upgrade --install terrier-connect             │
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
@@ -251,7 +254,7 @@ infrastructure changes are applied manually via Terraform.
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-Secrets (DB password, Django secret key, Maps API key) are stored in
+Secrets (DB password, Django secret key, Maps API key, Google OAuth client ID, and Google OAuth client secret) are stored in
 **GCP Secret Manager** and injected into builds at runtime — never in git.
 
 ---
@@ -321,15 +324,15 @@ terrier-connect/
 │   ├── requirements.txt
 │   └── Dockerfile
 │
-├── k8s/                        # Kubernetes manifests
-│   ├── base/                   # Base manifests (deployments, services)
+├── helm/                       # Canonical production deployment chart
+│   └── terrier-connect/
+│       ├── values.yaml
+│       └── templates/
+│
+├── k8s/                        # Legacy Kubernetes manifests / reference
+│   ├── base/                   # Base manifests
 │   └── overlays/
-│       └── prod/               # Production overlay (Kustomize)
-│           ├── kustomization.yaml      # Replacements + secret generator
-│           ├── cluster-vars.env.example
-│           ├── app-secrets.env.example
-│           ├── ingress.yaml
-│           └── managed-cert.yaml
+│       └── prod/               # Legacy Kustomize overlay
 │
 ├── infrastructure/             # Terraform IaC
 │   ├── main.tf                 # All GCP resources
@@ -398,6 +401,10 @@ injected into Cloud Build at runtime — nothing sensitive is committed to git.
 | DB password | `terrier-connect-db-password` |
 | Django secret key | `terrier-connect-django-secret-key` |
 | Google Maps API key | `terrier-connect-maps-api-key` |
+| Google OAuth client ID | `terrier-connect-google-client-id` |
+| Google OAuth client secret | `terrier-connect-google-client-secret` |
+| Debezium DB user | `terrier-connect-debezium-db-user` |
+| Debezium DB password | `terrier-connect-debezium-db-password` |
 
 ---
 

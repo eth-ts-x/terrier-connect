@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "terrier-connect.fullname" . }}-app-config
+  labels:
+    {{- include "terrier-connect.labels" . | nindent 4 }}
+data:
+  DB_NAME: {{ .Values.appConfig.DB_NAME | quote }}
+  DB_USER: {{ .Values.appConfig.DB_USER | quote }}
+  DB_HOST: {{ ternary "127.0.0.1" .Values.appConfig.DB_HOST .Values.cloudSqlProxy.enabled | quote }}
+  DB_PORT: {{ .Values.appConfig.DB_PORT | quote }}
+  DEBUG: {{ .Values.appConfig.DEBUG | quote }}
+  ALLOWED_HOSTS: {{ .Values.appConfig.ALLOWED_HOSTS | quote }}
+  CASSANDRA_HOSTS: {{ .Values.appConfig.CASSANDRA_HOSTS | quote }}
+  CASSANDRA_PORT: {{ .Values.appConfig.CASSANDRA_PORT | quote }}
+  CASSANDRA_KEYSPACE: {{ .Values.appConfig.CASSANDRA_KEYSPACE | quote }}
+  REDIS_URL: {{ .Values.appConfig.REDIS_URL | quote }}
+  ELASTICSEARCH_URL: {{ .Values.appConfig.ELASTICSEARCH_URL | quote }}
+  KAFKA_BOOTSTRAP_SERVERS: {{ .Values.appConfig.KAFKA_BOOTSTRAP_SERVERS | quote }}
+  USE_GCS: {{ .Values.appConfig.USE_GCS | quote }}
+  GS_BUCKET_NAME: {{ .Values.appConfig.GS_BUCKET_NAME | quote }}
+  GS_PROJECT_ID: {{ .Values.appConfig.GS_PROJECT_ID | quote }}
+  GS_QUERYSTRING_AUTH: {{ .Values.appConfig.GS_QUERYSTRING_AUTH | quote }}
+  PROJECTION_EVENTS_ENABLED: {{ .Values.appConfig.PROJECTION_EVENTS_ENABLED | quote }}
+  GOOGLE_OAUTH_CALLBACK_URL: {{ .Values.appConfig.GOOGLE_OAUTH_CALLBACK_URL | quote }}

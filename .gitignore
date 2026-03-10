@@ -145,7 +145,6 @@ k8s/overlays/prod/app-secrets.env
 *.tfvars.json
 
 # Any potential key files
-*.json
 *.pem
 
 # Crash logs

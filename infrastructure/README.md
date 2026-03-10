@@ -4,12 +4,19 @@ This directory provisions the full production infrastructure on GCP using Terraf
 
 - **GKE** — Kubernetes cluster for app workloads
 - **Cloud SQL (Postgres)** — Private IP database
+- **Redis** — In-cluster cache and session store
+- **Kafka + Kafka Connect** — In-cluster event streaming and Debezium runtime
+- **Cassandra** — In-cluster projection store
+- **Elasticsearch** — In-cluster search index
 - **Cloud Storage** — Media uploads bucket
 - **Artifact Registry** — Docker image storage
 - **Cloud DNS** + **GKE Ingress** + **Managed Certificates** — HTTPS routing
-- **Secret Manager** — Secrets storage (DB password, Django key, Maps API key)
+- **Secret Manager** — Secrets storage (DB password, Django key, Maps API key, Google OAuth client ID/secret)
 - **Cloud Build Trigger** — GitOps: auto-deploy on push to `main`
 - **GCS backend** — Remote Terraform state
+
+Production application deploys are rendered from the Helm chart in [helm/terrier-connect](../helm/terrier-connect).
+The older Kustomize manifests under [k8s/](../k8s/) remain as legacy reference material.
 
 ## Architecture
 
@@ -27,7 +34,8 @@ This directory provisions the full production infrastructure on GCP using Terraf
                         └──────────────────┘              │
                                                           ▼
                                                ┌────────────────────┐
-                                               │  Cloud SQL + GCS   │
+                                               │ Cloud SQL + GCS +  │
+                                               │ platform services  │
                                                └────────────────────┘
 ```
 
@@ -72,6 +80,7 @@ This creates all infrastructure including:
 - The dedicated Cloud Build SA (`terrier-connect-cloudbuild-sa`) with all required IAM roles
 - Secret Manager secret shells (empty — must be populated in step 4)
 - The GitOps Cloud Build trigger (fires on push to `main`)
+- A shared Kubernetes namespace for Redis, Kafka, Kafka Connect, Cassandra, and Elasticsearch
 
 ### 4. Populate Secret Manager secrets (one-time, after first apply)
 
@@ -79,6 +88,10 @@ This creates all infrastructure including:
 echo -n "your-db-password" | gcloud secrets versions add terrier-connect-db-password --data-file=-
 echo -n "your-django-secret-key" | gcloud secrets versions add terrier-connect-django-secret-key --data-file=-
 echo -n "your-maps-api-key" | gcloud secrets versions add terrier-connect-maps-api-key --data-file=-
+echo -n "your-google-client-id" | gcloud secrets versions add terrier-connect-google-client-id --data-file=-
+echo -n "your-google-client-secret" | gcloud secrets versions add terrier-connect-google-client-secret --data-file=-
+echo -n "your-debezium-db-user" | gcloud secrets versions add terrier-connect-debezium-db-user --data-file=-
+echo -n "your-debezium-db-password" | gcloud secrets versions add terrier-connect-debezium-db-password --data-file=-
 ```
 
 ## Deploying
@@ -99,6 +112,12 @@ gcloud builds submit \
   .
 ```
 
+To also register the Debezium follow connector during deploy, add substitutions like:
+
+```bash
+--substitutions=_DOMAIN_NAME="yourdomain.com",_ENABLE_DEBEZIUM_CONNECTOR_REGISTRATION="true",_KAFKA_CONNECT_URL="http://terrier-kafka-connect.terrier-platform.svc.cluster.local:8083",_DEBEZIUM_DB_HOST="$(terraform output -raw cloudsql_private_ip_address)"
+```
+
 ### Trigger GitOps manually via CLI
 ```bash
 gcloud builds triggers run terrier-connect-main \
@@ -113,22 +132,29 @@ cd infrastructure
 terraform apply   # terraform.tfvars is loaded automatically
 ```
 
-## Kubernetes Manifests
+## Helm Deployment
 
-Production manifests live in [k8s/overlays/prod](../k8s/overlays/prod) and use
-**Kustomize replacements** — no manual placeholder editing needed.
+Production manifests are rendered from [helm/terrier-connect](../helm/terrier-connect).
 
-At build time, Cloud Build renders two env files from Secret Manager and
-Cloud Build substitutions:
+At build time, Cloud Build generates Helm values that inject:
 
-- `cluster-vars.env` — domain, Cloud SQL instance, project ID, GKE SA email
-- `app-secrets.env` — DB password, Django secret key (from Secret Manager)
+- image tags for `client`, `server`, and `gateway`
+- ingress, CORS, and Workload Identity settings
+- Secret Manager values for DB password, Django secret key, and Google OAuth credentials
+- runtime backend endpoints for the Terraform-managed Cassandra, Redis, Elasticsearch, Kafka, and Kafka Connect services
 
-Kustomize reads these files and injects the values into the appropriate
-ConfigMaps, Secrets, Ingress, and ManagedCertificate resources automatically.
+If Debezium connector registration is enabled, Cloud Build also reads dedicated Secret Manager credentials for Kafka Connect registration and passes them into an in-cluster Helm hook job.
 
-See `cluster-vars.env.example` and `app-secrets.env.example` in that directory
-for the expected keys.
+Use [helm/terrier-connect/values.yaml](../helm/terrier-connect/values.yaml) as the baseline contract for deploy-time configuration.
+
+Useful Terraform outputs after apply:
+
+- `terraform output cassandra_host`
+- `terraform output redis_url`
+- `terraform output kafka_bootstrap_servers`
+- `terraform output kafka_connect_url`
+- `terraform output elasticsearch_url`
+- `terraform output cloudsql_private_ip_address`
 
 ## Accessing the Application
 
@@ -158,3 +184,4 @@ gsutil rm -r gs://${PROJECT_ID}-tf-state
 - **Secret access denied in build**: verify `terrier-connect-cloudbuild-sa` has `roles/secretmanager.secretAccessor` — run `terraform apply` to reconcile.
 - **GitOps trigger 400 error**: ensure the Cloud Build service agent has `roles/iam.serviceAccountTokenCreator` on the Cloud Build SA (managed by Terraform).
 - **Build uses wrong SA**: confirm `serviceAccount` field in `cloudbuild-local.yaml` and `service_account` in the Terraform trigger resource both reference `terrier-connect-cloudbuild-sa`.
+- **Platform pod scheduling pressure**: if Redis, Kafka, Cassandra, or Elasticsearch stay Pending, increase `gke_node_count` and/or `gke_node_machine_type` before re-applying.

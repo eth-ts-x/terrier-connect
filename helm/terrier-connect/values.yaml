@@ -1,0 +1,153 @@
+nameOverride: ""
+fullnameOverride: ""
+
+imagePullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: server
+  annotations: {}
+
+appConfig:
+  DB_NAME: terrier-connect-prod
+  DB_USER: appuser
+  DB_HOST: 127.0.0.1
+  DB_PORT: "5432"
+  DEBUG: "0"
+  ALLOWED_HOSTS: example.com,www.example.com,localhost,127.0.0.1
+  CASSANDRA_HOSTS: cassandra.example.internal
+  CASSANDRA_PORT: "9042"
+  CASSANDRA_KEYSPACE: terrier
+  REDIS_URL: redis://redis.example.internal:6379/0
+  ELASTICSEARCH_URL: http://elasticsearch.example.internal:9200
+  KAFKA_BOOTSTRAP_SERVERS: kafka.example.internal:9092
+  SECRET_KEY: ""
+  USE_GCS: "1"
+  GS_BUCKET_NAME: terrier-connect-media
+  GS_PROJECT_ID: ""
+  GS_QUERYSTRING_AUTH: "false"
+  PROJECTION_EVENTS_ENABLED: "0"
+  GOOGLE_OAUTH_CALLBACK_URL: ""
+
+secrets:
+  DB_PASSWORD: ""
+  SECRET_KEY: ""
+  GOOGLE_CLIENT_ID: ""
+  GOOGLE_CLIENT_SECRET: ""
+
+cloudSqlProxy:
+  enabled: false
+  instanceConnectionName: ""
+  image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.11.0
+  port: 5432
+
+debezium:
+  enabled: false
+  connectUrl: ""
+  connectorName: postgres-follow-source
+  registerTimeoutSeconds: 180
+  postgres:
+    hostname: ""
+    port: "5432"
+    dbname: terrier-connect-prod
+    topicPrefix: postgres
+    schemaIncludeList: public
+    tableIncludeList: public.users_userfollowrel
+    publicationName: tc_follow_pub
+    slotName: tc_follow_slot
+    heartbeatTopicsPrefix: __debezium-heartbeat
+    snapshotMode: initial
+    heartbeatIntervalMs: "30000"
+  secrets:
+    dbUser: ""
+    dbPassword: ""
+
+client:
+  replicaCount: 2
+  image:
+    repository: us-central1-docker.pkg.dev/PROJECT_ID/terrier-connect-repo/client
+    tag: latest
+  service:
+    port: 80
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+server:
+  replicaCount: 2
+  image:
+    repository: us-central1-docker.pkg.dev/PROJECT_ID/terrier-connect-repo/server
+    tag: latest
+  service:
+    port: 8000
+  probes:
+    readinessPath: /api/posts/health/
+    livenessPath: /api/posts/health/
+    hostHeader: localhost
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+gateway:
+  replicaCount: 2
+  image:
+    repository: us-central1-docker.pkg.dev/PROJECT_ID/terrier-connect-repo/gateway
+    tag: latest
+  service:
+    port: 4000
+  corsOrigin: https://example.com,https://www.example.com
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+workerResources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+workers:
+  - name: outbox-relay
+    command:
+      - python
+      - manage.py
+      - run_outbox_relay
+      - --poll-interval
+      - "1.0"
+    replicaCount: 1
+  - name: feed
+    consumer: feed_fanout
+    replicaCount: 1
+  - name: notification
+    consumer: notification
+    replicaCount: 1
+  - name: like-counter
+    consumer: like_counter
+    replicaCount: 1
+  - name: search-indexer
+    consumer: search_indexer
+    replicaCount: 1
+
+ingress:
+  enabled: true
+  className: "gce"
+  annotations:
+    kubernetes.io/ingress.global-static-ip-name: terrier-connect-ip
+    networking.gke.io/managed-certificates: terrier-connect-cert
+  hosts:
+    - host: example.com
+    - host: www.example.com

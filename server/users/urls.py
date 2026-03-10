@@ -1,16 +1,28 @@
-from django.urls import path
-from . import views
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 
-# Define user-related API endpoints
+from .views import (
+    RegisterView,
+    CookieTokenObtainPairView,
+    CookieTokenRefreshView,
+    LogoutView,
+    MeView,
+    UserViewSet,
+    GoogleLoginView,
+)
+
+router = DefaultRouter()
+router.register(r'', UserViewSet, basename='user')
+
 urlpatterns = [
-    path("register", views.register_user, name="register"),
-    path("login", views.login_user, name="login"),
-    path("protected_route", views.protected_route, name="protected_route"),
-    path('user/<int:user_id>/', views.get_user_info_by_id, name='get_user_info_by_id'),
-    path('<int:user_id>/follow/', views.follow_user, name='follow_user'),
-    path('<int:user_id>/unfollow/', views.unfollow_user, name='unfollow_user'),
-    path('<int:user_id>/followers/', views.list_followers, name='list_followers'),
-    path('<int:user_id>/following/', views.list_following, name='list_following'),  # Added for listing following users
-    path('update_profile/', views.update_profile, name='update_profile'),
-    path('change_password/', views.change_password, name='change_password'),
+    # Auth endpoints
+    path('register/', RegisterView.as_view(), name='register'),
+    path('login/', CookieTokenObtainPairView.as_view(), name='login'),
+    path('logout/', LogoutView.as_view(), name='logout'),
+    path('token/refresh/', CookieTokenRefreshView.as_view(), name='token_refresh'),
+    path('me/', MeView.as_view(), name='me'),
+    # Google OAuth 2.0
+    path('auth/google/', GoogleLoginView.as_view(), name='google_login'),
+    # ViewSet routes (retrieve, follow, unfollow, followers, following, profile, change-password)
+    path('', include(router.urls)),
 ]

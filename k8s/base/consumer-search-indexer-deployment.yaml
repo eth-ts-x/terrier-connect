@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consumer-search-indexer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: consumer-search-indexer
+  template:
+    metadata:
+      labels:
+        app: consumer-search-indexer
+    spec:
+      serviceAccountName: server
+      containers:
+        - name: consumer
+          image: server
+          command: ["python", "manage.py", "run_consumer", "--consumer", "search_indexer"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          env:
+            - name: SKIP_STARTUP_INIT
+              value: "1"
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets

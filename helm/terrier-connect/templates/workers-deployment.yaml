@@ -1,0 +1,50 @@
+{{- range $worker := .Values.workers }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "terrier-connect.fullname" $ }}-consumer-{{ $worker.name }}
+  labels:
+    {{- include "terrier-connect.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: consumer-{{ $worker.name }}
+spec:
+  replicas: {{ $worker.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "terrier-connect.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: consumer-{{ $worker.name }}
+  template:
+    metadata:
+      labels:
+        {{- include "terrier-connect.selectorLabels" $ | nindent 8 }}
+        app.kubernetes.io/component: consumer-{{ $worker.name }}
+    spec:
+      serviceAccountName: {{ include "terrier-connect.serverServiceAccountName" $ }}
+      containers:
+        - name: consumer
+          image: "{{ $.Values.server.image.repository }}:{{ $.Values.server.image.tag }}"
+          imagePullPolicy: {{ $.Values.imagePullPolicy }}
+          command: {{ toJson (default (list "python" "manage.py" "run_consumer" "--consumer" $worker.consumer) $worker.command) }}
+          resources:
+            {{- toYaml $.Values.workerResources | nindent 12 }}
+          env:
+            - name: SKIP_STARTUP_INIT
+              value: "1"
+          envFrom:
+            - configMapRef:
+                name: {{ include "terrier-connect.fullname" $ }}-app-config
+            - secretRef:
+                name: {{ include "terrier-connect.fullname" $ }}-app-secrets
+        {{- if $.Values.cloudSqlProxy.enabled }}
+        - name: cloud-sql-proxy
+          image: {{ $.Values.cloudSqlProxy.image }}
+          args:
+            - --private-ip
+            - --port={{ $.Values.cloudSqlProxy.port }}
+            - {{ $.Values.cloudSqlProxy.instanceConnectionName }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65532
+        {{- end }}
+{{- end }}

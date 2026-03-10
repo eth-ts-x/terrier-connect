@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "terrier-connect.fullname" . }}-gateway
+  labels:
+    {{- include "terrier-connect.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  replicas: {{ .Values.gateway.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "terrier-connect.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: gateway
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "terrier-connect.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: gateway
+    spec:
+      containers:
+        - name: gateway
+          image: "{{ .Values.gateway.image.repository }}:{{ .Values.gateway.image.tag }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: 4000
+          resources:
+            {{- toYaml .Values.gateway.resources | nindent 12 }}
+          env:
+            - name: PORT
+              value: "4000"
+            - name: DJANGO_API_URL
+              value: http://{{ include "terrier-connect.fullname" . }}-server:{{ .Values.server.service.port }}
+            - name: CORS_ORIGIN
+              value: {{ .Values.gateway.corsOrigin | quote }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 4000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 4000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5

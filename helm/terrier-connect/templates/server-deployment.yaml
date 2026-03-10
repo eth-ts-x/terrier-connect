@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "terrier-connect.fullname" . }}-server
+  labels:
+    {{- include "terrier-connect.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  replicas: {{ .Values.server.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "terrier-connect.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: server
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "terrier-connect.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: server
+    spec:
+      serviceAccountName: {{ include "terrier-connect.serverServiceAccountName" . }}
+      containers:
+        - name: server
+          image: "{{ .Values.server.image.repository }}:{{ .Values.server.image.tag }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "terrier-connect.fullname" . }}-app-config
+            - secretRef:
+                name: {{ include "terrier-connect.fullname" . }}-app-secrets
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.server.probes.readinessPath }}
+              port: 8000
+              {{- if .Values.server.probes.hostHeader }}
+              httpHeaders:
+                - name: Host
+                  value: {{ .Values.server.probes.hostHeader | quote }}
+              {{- end }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.server.probes.livenessPath }}
+              port: 8000
+              {{- if .Values.server.probes.hostHeader }}
+              httpHeaders:
+                - name: Host
+                  value: {{ .Values.server.probes.hostHeader | quote }}
+              {{- end }}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+        {{- if .Values.cloudSqlProxy.enabled }}
+        - name: cloud-sql-proxy
+          image: {{ .Values.cloudSqlProxy.image }}
+          args:
+            - --private-ip
+            - --port={{ .Values.cloudSqlProxy.port }}
+            - {{ .Values.cloudSqlProxy.instanceConnectionName }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65532
+        {{- end }}

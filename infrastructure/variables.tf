@@ -118,7 +118,49 @@ variable "lb_ip_name" {
 variable "k8s_namespace" {
   description = "Kubernetes namespace for the server workload"
   type        = string
-  default     = "default"
+  default     = "terrier-connect"
+}
+
+variable "platform_namespace" {
+  description = "Kubernetes namespace for shared data and messaging services"
+  type        = string
+  default     = "terrier-platform"
+}
+
+variable "k8s_cluster_domain" {
+  description = "Kubernetes cluster DNS domain"
+  type        = string
+  default     = "cluster.local"
+}
+
+variable "platform_storage_class" {
+  description = "Optional storage class for Redis, Kafka, Cassandra, and Elasticsearch PVCs"
+  type        = string
+  default     = ""
+}
+
+variable "redis_storage_size" {
+  description = "Persistent volume size for Redis"
+  type        = string
+  default     = "8Gi"
+}
+
+variable "kafka_storage_size" {
+  description = "Persistent volume size for Kafka"
+  type        = string
+  default     = "20Gi"
+}
+
+variable "cassandra_storage_size" {
+  description = "Persistent volume size for Cassandra"
+  type        = string
+  default     = "20Gi"
+}
+
+variable "elasticsearch_storage_size" {
+  description = "Persistent volume size for Elasticsearch"
+  type        = string
+  default     = "20Gi"
 }
 
 variable "gke_workload_sa_name" {
