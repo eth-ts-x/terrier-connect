@@ -46,9 +46,15 @@ variable "gke_node_machine_type" {
 }
 
 variable "gke_node_count" {
-  description = "Number of nodes in the primary node pool"
+  description = "Minimum number of nodes in the primary node pool"
   type        = number
   default     = 2
+}
+
+variable "gke_node_max_count" {
+  description = "Maximum number of nodes in the primary node pool autoscaler"
+  type        = number
+  default     = 3
 }
 
 variable "cloudsql_instance_name" {

@@ -5,6 +5,7 @@ zone       = "us-central1-a"
 gke_cluster_name     = "terrier-connect-gke"
 gke_node_machine_type = "e2-medium"
 gke_node_count       = 2
+gke_node_max_count   = 3
 
 cloudsql_instance_name     = "terrier-connect-db"
 cloudsql_tier              = "db-f1-micro"

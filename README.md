@@ -345,8 +345,8 @@ terrier-connect/
 ├── documents/                  # Project documentation & notes
 ├── scripts/                    # Helper scripts
 ├── docker-compose.yml          # Local Docker orchestration
-├── cloudbuild.yaml             # GitOps pipeline (push to main)
-├── cloudbuild-local.yaml       # Local/manual deploy pipeline
+├── cloudbuild.yaml             # Primary build/deploy pipeline (GitOps + manual)
+├── cloudbuild-local.yaml       # Compatibility alias for manual deploys
 └── README.md
 ```
 
@@ -379,10 +379,12 @@ git push origin main
 ```bash
 gcloud builds submit \
   --project "$PROJECT_ID" \
-  --config cloudbuild-local.yaml \
+  --config cloudbuild.yaml \
   --substitutions=_DOMAIN_NAME="yourdomain.com" \
   .
 ```
+
+`cloudbuild-local.yaml` remains in the repo only as a compatibility alias and should stay aligned with `cloudbuild.yaml`.
 
 **Run infrastructure changes:**
 ```bash

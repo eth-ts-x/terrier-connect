@@ -83,30 +83,20 @@ steps:
         curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
         cat > /workspace/helm/terrier-connect/ci-values.generated.yaml << EOF
         client:
-          replicaCount: 1
           image:
             repository: ${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/client
             tag: ${BUILD_ID}
         server:
-          replicaCount: 1
           image:
             repository: ${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/server
             tag: ${BUILD_ID}
           probes:
             hostHeader: localhost
         gateway:
-          replicaCount: 1
           image:
             repository: ${_REGION}-docker.pkg.dev/${PROJECT_ID}/terrier-connect-repo/gateway
             tag: ${BUILD_ID}
           corsOrigin: https://${_DOMAIN_NAME},https://www.${_DOMAIN_NAME}
-          resources:
-            requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              cpu: 250m
-              memory: 256Mi
         appConfig:
           ALLOWED_HOSTS: ${_DOMAIN_NAME},www.${_DOMAIN_NAME},localhost,127.0.0.1
           CASSANDRA_HOSTS: ${_CASSANDRA_HOSTS}
@@ -116,13 +106,6 @@ steps:
           PROJECTION_EVENTS_ENABLED: '${_PROJECTION_EVENTS_ENABLED}'
           GOOGLE_OAUTH_CALLBACK_URL: https://${_DOMAIN_NAME}/auth/google/callback
           GS_PROJECT_ID: ${PROJECT_ID}
-        workerResources:
-          requests:
-            cpu: 50m
-            memory: 128Mi
-          limits:
-            cpu: 250m
-            memory: 256Mi
         secrets:
           DB_PASSWORD: $$_DB_PASSWORD
           SECRET_KEY: $$_SECRET_KEY

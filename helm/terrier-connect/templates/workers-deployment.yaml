@@ -13,6 +13,11 @@ spec:
     matchLabels:
       {{- include "terrier-connect.selectorLabels" $ | nindent 6 }}
       app.kubernetes.io/component: consumer-{{ $worker.name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
   template:
     metadata:
       labels:

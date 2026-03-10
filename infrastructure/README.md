@@ -102,15 +102,17 @@ git push origin main
 # Cloud Build trigger fires, builds images, deploys to GKE
 ```
 
-### App deploy — manual (without a git push)
+### App deploy — manual (same pipeline as GitOps, without a git push)
 ```bash
 # From the repo root:
 gcloud builds submit \
   --project "$PROJECT_ID" \
-  --config cloudbuild-local.yaml \
+  --config cloudbuild.yaml \
   --substitutions=_DOMAIN_NAME="yourdomain.com" \
   .
 ```
+
+`cloudbuild-local.yaml` is kept only as a compatibility alias and should stay functionally aligned with `cloudbuild.yaml`.
 
 To also register the Debezium follow connector during deploy, add substitutions like:
 
@@ -183,5 +185,5 @@ gsutil rm -r gs://${PROJECT_ID}-tf-state
 - **GCS media access**: if private, use signed URLs or set `media_bucket_public = true` in `terraform.tfvars`.
 - **Secret access denied in build**: verify `terrier-connect-cloudbuild-sa` has `roles/secretmanager.secretAccessor` — run `terraform apply` to reconcile.
 - **GitOps trigger 400 error**: ensure the Cloud Build service agent has `roles/iam.serviceAccountTokenCreator` on the Cloud Build SA (managed by Terraform).
-- **Build uses wrong SA**: confirm `serviceAccount` field in `cloudbuild-local.yaml` and `service_account` in the Terraform trigger resource both reference `terrier-connect-cloudbuild-sa`.
-- **Platform pod scheduling pressure**: if Redis, Kafka, Cassandra, or Elasticsearch stay Pending, increase `gke_node_count` and/or `gke_node_machine_type` before re-applying.
+- **Build uses wrong SA**: confirm `serviceAccount` field in `cloudbuild.yaml` and `service_account` in the Terraform trigger resource both reference `terrier-connect-cloudbuild-sa`.
+- **Platform pod scheduling pressure**: the GKE node pool now autos-scales between `gke_node_count` and `gke_node_max_count`. Increase those values and/or `gke_node_machine_type` if workloads still stay Pending.
