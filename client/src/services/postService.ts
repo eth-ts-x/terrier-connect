@@ -1,6 +1,18 @@
 import apiClient from "./apiClient";
 import type { Post, Comment, PaginatedResponse, LikeStatus, SearchResponse } from "../types";
 
+function toPaginatedPostsResponse(data: unknown): PaginatedResponse<Post> {
+  if (!data || typeof data !== "object" || !Array.isArray((data as PaginatedResponse<Post>).results)) {
+    throw new Error("Unexpected posts response.");
+  }
+
+  const response = data as PaginatedResponse<Post>;
+  return {
+    ...response,
+    results: response.results,
+  };
+}
+
 /* ── List / Feed ── */
 
 export async function listPosts(
@@ -8,7 +20,7 @@ export async function listPosts(
   pageSize = 10
 ): Promise<PaginatedResponse<Post>> {
   const { data } = await apiClient.get("/posts/", { params: { flag, pageSize } });
-  return data;
+  return toPaginatedPostsResponse(data);
 }
 
 /* ── Detail ── */
@@ -103,5 +115,5 @@ export async function getPostsByUser(
   const { data } = await apiClient.get("/posts/by-user/", {
     params: { author: authorId, pageSize },
   });
-  return data;
+  return toPaginatedPostsResponse(data);
 }

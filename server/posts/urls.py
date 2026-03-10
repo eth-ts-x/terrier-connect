@@ -1,15 +1,12 @@
 from django.urls import path, include
-from rest_framework.routers import DefaultRouter
+from rest_framework.routers import SimpleRouter
 
 from .views import PostViewSet, HealthViewSet
 
-router = DefaultRouter()
+router = SimpleRouter()
 router.register(r"", PostViewSet, basename="post")
 
-health_router = DefaultRouter()
-health_router.register(r"health", HealthViewSet, basename="health")
-
 urlpatterns = [
-    path("", include(health_router.urls)),
+    path("health/", HealthViewSet.as_view({"get": "list"}), name="posts-health"),
     path("", include(router.urls)),
 ]

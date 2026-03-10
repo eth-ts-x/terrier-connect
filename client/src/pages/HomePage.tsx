@@ -14,6 +14,7 @@ export default function HomePage() {
     queryKey: ["posts", tab],
     queryFn: () => listPosts(tab),
   });
+  const posts = data?.results ?? [];
 
   return (
     <Container maxWidth="md" sx={{ mt: 3 }}>
@@ -35,10 +36,10 @@ export default function HomePage() {
       {error && (
         <Typography color="error">Failed to load posts.</Typography>
       )}
-      {data?.results.map((post) => (
+      {posts.map((post) => (
         <PostCard key={post.post_id} post={post} />
       ))}
-      {data && data.results.length === 0 && (
+      {data && posts.length === 0 && (
         <Typography color="text.secondary" textAlign="center" mt={4}>
           No posts yet. Be the first!
         </Typography>
