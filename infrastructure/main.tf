@@ -212,6 +212,13 @@ resource "helm_release" "kafka" {
       registry   = "docker.io"
       repository = "bitnamilegacy/kafka"
     }
+    overrideConfiguration = {
+      "default.replication.factor"             = 1
+      "offsets.topic.replication.factor"       = 1
+      "transaction.state.log.replication.factor" = 1
+      "transaction.state.log.min.isr"          = 1
+      "min.insync.replicas"                    = 1
+    }
     listeners = {
       client = {
         protocol = "PLAINTEXT"
@@ -242,6 +249,16 @@ resource "helm_release" "kafka" {
     provisioning = {
       enabled      = true
       waitForKafka = true
+      resources = {
+        requests = {
+          cpu    = "50m"
+          memory = "64Mi"
+        }
+        limits = {
+          cpu    = "250m"
+          memory = "256Mi"
+        }
+      }
       topics = [
         {
           name              = "cassandra.terrier.post_by_id"
