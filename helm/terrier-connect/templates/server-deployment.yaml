@@ -41,6 +41,11 @@ spec:
             httpGet:
               path: {{ .Values.server.probes.readinessPath }}
               port: 8000
+              {{- if .Values.server.probes.hostHeader }}
+              httpHeaders:
+                - name: Host
+                  value: {{ .Values.server.probes.hostHeader | quote }}
+              {{- end }}
             initialDelaySeconds: 15
             periodSeconds: 10
             timeoutSeconds: 5
@@ -48,6 +53,11 @@ spec:
             httpGet:
               path: {{ .Values.server.probes.livenessPath }}
               port: 8000
+              {{- if .Values.server.probes.hostHeader }}
+              httpHeaders:
+                - name: Host
+                  value: {{ .Values.server.probes.hostHeader | quote }}
+              {{- end }}
             initialDelaySeconds: 30
             periodSeconds: 20
             timeoutSeconds: 5

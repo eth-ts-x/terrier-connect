@@ -14,7 +14,7 @@ appConfig:
   DB_HOST: 127.0.0.1
   DB_PORT: "5432"
   DEBUG: "0"
-  ALLOWED_HOSTS: example.com,www.example.com
+  ALLOWED_HOSTS: example.com,www.example.com,localhost,127.0.0.1
   CASSANDRA_HOSTS: cassandra.example.internal
   CASSANDRA_PORT: "9042"
   CASSANDRA_KEYSPACE: terrier
@@ -87,6 +87,7 @@ server:
   probes:
     readinessPath: /api/posts/health/
     livenessPath: /api/posts/health/
+    hostHeader: localhost
   resources:
     requests:
       cpu: 250m

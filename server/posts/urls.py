@@ -10,6 +10,6 @@ health_router = DefaultRouter()
 health_router.register(r"health", HealthViewSet, basename="health")
 
 urlpatterns = [
-    path("", include(router.urls)),
     path("", include(health_router.urls)),
+    path("", include(router.urls)),
 ]
