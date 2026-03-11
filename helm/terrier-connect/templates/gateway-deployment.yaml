@@ -22,6 +22,7 @@ spec:
         {{- include "terrier-connect.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: gateway
     spec:
+      serviceAccountName: {{ include "terrier-connect.serverServiceAccountName" . }}
       containers:
         - name: gateway
           image: "{{ .Values.gateway.image.repository }}:{{ .Values.gateway.image.tag }}"
@@ -38,6 +39,55 @@ spec:
               value: http://{{ include "terrier-connect.fullname" . }}-server:{{ .Values.server.service.port }}
             - name: CORS_ORIGIN
               value: {{ .Values.gateway.corsOrigin | quote }}
+            - name: APP_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "terrier-connect.fullname" . }}-app-config
+                  key: APP_ENV
+            - name: GOOGLE_CLOUD_PROJECT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "terrier-connect.fullname" . }}-app-config
+                  key: GOOGLE_CLOUD_PROJECT
+            - name: OTEL_TRACES_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "terrier-connect.fullname" . }}-app-config
+                  key: OTEL_TRACES_ENABLED
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "terrier-connect.fullname" . }}-app-config
+                  key: OTEL_EXPORTER_OTLP_ENDPOINT
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "terrier-connect.fullname" . }}-app-config
+                  key: OTEL_EXPORTER_OTLP_PROTOCOL
+            - name: OTEL_EXPORTER_OTLP_GCP_AUTH
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "terrier-connect.fullname" . }}-app-config
+                  key: OTEL_EXPORTER_OTLP_GCP_AUTH
+            - name: OTEL_PROPAGATORS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "terrier-connect.fullname" . }}-app-config
+                  key: OTEL_PROPAGATORS
+            - name: OTEL_TRACES_SAMPLER
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "terrier-connect.fullname" . }}-app-config
+                  key: OTEL_TRACES_SAMPLER
+            - name: OTEL_TRACES_SAMPLER_ARG
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "terrier-connect.fullname" . }}-app-config
+                  key: OTEL_TRACES_SAMPLER_ARG
+            - name: SERVICE_NAME
+              value: terrier-connect-gateway
+            - name: SERVICE_VERSION
+              value: {{ .Values.gateway.image.tag | quote }}
           readinessProbe:
             httpGet:
               path: /healthz

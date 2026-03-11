@@ -163,7 +163,7 @@ The current design separates **transactional identity data** from **high-volume 
 | Cache | Redis + `django-redis` |
 | Search | Elasticsearch |
 | Events | `confluent-kafka` |
-| Observability | `django-prometheus`, structured JSON logging, request IDs |
+| Observability | OpenTelemetry traces, Prometheus metrics, structured JSON logging, Cloud Monitoring dashboards/alerts, SLOs, uptime checks |
 
 ### Infrastructure and Delivery
 
@@ -360,6 +360,11 @@ The gateway exposes GraphQL queries and mutations for:
 - Django dependency health: `/api/posts/health/`
 - Gateway health: `/healthz`
 - Prometheus metrics: `/metrics`
+
+### Observability operations
+
+- production monitoring resources are defined in [infrastructure/main.tf](infrastructure/main.tf)
+- operator workflow and incident triage are documented in [documents/observability-runbook.md](documents/observability-runbook.md)
 
 ---
 

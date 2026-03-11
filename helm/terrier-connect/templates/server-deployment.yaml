@@ -37,6 +37,11 @@ spec:
                 name: {{ include "terrier-connect.fullname" . }}-app-config
             - secretRef:
                 name: {{ include "terrier-connect.fullname" . }}-app-secrets
+          env:
+            - name: SERVICE_NAME
+              value: terrier-connect-server
+            - name: SERVICE_VERSION
+              value: {{ .Values.server.image.tag | quote }}
           readinessProbe:
             httpGet:
               path: {{ .Values.server.probes.readinessPath }}

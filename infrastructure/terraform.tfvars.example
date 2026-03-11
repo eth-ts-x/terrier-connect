@@ -47,3 +47,9 @@ gke_workload_sa_name  = "terrier-connect-gke-sa"
 github_owner           = "your-github-username"
 github_repo            = "terrier-connect"
 github_connection_name = "terrier-connect-github"
+
+# Enable after the gateway Prometheus metrics have appeared in Cloud Monitoring.
+enable_gateway_slos    = false
+
+# Enable after Django, gateway, worker, and Kafka Connect Prometheus metrics are visible in Cloud Monitoring.
+enable_metric_alert_policies = false

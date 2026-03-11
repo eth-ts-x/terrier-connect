@@ -35,7 +35,7 @@ except Exception:
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_METHODS = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-CORS_ALLOW_HEADERS = ["content-type", "authorization"]
+CORS_ALLOW_HEADERS = ["content-type", "authorization", "x-request-id", "traceparent", "baggage"]
 
 # ── Application definition ──────────────────────────────────────
 AUTH_USER_MODEL = "users.User"
@@ -163,6 +163,12 @@ SESSION_ENGINE = "django.contrib.sessions.backends.cache"
 
 # ── Kafka ────────────────────────────────────────────────────────
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+KAFKA_CONNECT_URL = os.getenv("KAFKA_CONNECT_URL", "http://kafka-connect:8083")
+KAFKA_CONNECT_DLQ_TOPICS = [
+    topic.strip()
+    for topic in os.getenv("KAFKA_CONNECT_DLQ_TOPICS", "dlq-elasticsearch-posts").split(",")
+    if topic.strip()
+]
 PROJECTION_EVENTS_ENABLED = os.getenv("PROJECTION_EVENTS_ENABLED", "1" if DEBUG else "0") == "1"
 PROJECTION_OUTBOX_SHARDS = int(os.getenv("PROJECTION_OUTBOX_SHARDS", "4"))
 
@@ -239,8 +245,8 @@ LOGGING = {
     "disable_existing_loggers": False,
     "formatters": {
         "json": {
-            "()": "pythonjsonlogger.json.JsonFormatter",
-            "fmt": "%(asctime)s %(levelname)s %(name)s %(message)s",
+            "()": "core.observability.CloudLoggingJsonFormatter",
+            "fmt": "%(message)s",
         },
     },
     "handlers": {
@@ -255,6 +261,7 @@ LOGGING = {
     },
     "loggers": {
         "django": {"handlers": ["console"], "level": "WARNING", "propagate": False},
+        "terrierconnect.request": {"handlers": ["console"], "level": "INFO", "propagate": False},
         "terrierconnect": {"handlers": ["console"], "level": "DEBUG", "propagate": False},
     },
 }

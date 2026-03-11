@@ -21,6 +21,7 @@ class ProjectionOutbox(Model):
     topic = columns.Text(required=True)
     event_key = columns.Text(required=True)
     payload = columns.Text(required=True)
+    headers = columns.Text(default="{}")
     source = columns.Text()
     op = columns.Text()
     attempts = columns.Integer(default=0)

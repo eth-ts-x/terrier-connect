@@ -4,23 +4,30 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch src/main.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node dist/main.js",
     "lint": "eslint src/"
   },
   "dependencies": {
     "@apollo/datasource-rest": "^6.3.0",
     "@apollo/server": "^4.11.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.65.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.205.0",
+    "@opentelemetry/resources": "^2.1.0",
+    "@opentelemetry/sdk-node": "^0.205.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dataloader": "^2.2.3",
     "express": "^4.21.0",
+    "google-auth-library": "^10.5.0",
     "graphql": "^16.9.0",
     "graphql-scalars": "^1.24.0",
     "graphql-tag": "^2.12.6",
     "graphql-upload-ts": "^2.1.2",
-    "helmet": "^8.0.0"
+    "helmet": "^8.0.0",
+    "prom-client": "^15.1.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.3",

@@ -10,13 +10,30 @@ from datetime import datetime, timezone
 import json
 import logging
 import signal
+import time
 import uuid
 from typing import Any
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
+from opentelemetry import trace
+from opentelemetry.trace import SpanKind, Status, StatusCode
+
+from core.async_tracing import (
+    extract_context_from_headers,
+    get_request_id_from_headers,
+    normalize_message_headers,
+)
+from core.async_metrics import (
+    dec_consumer_in_progress,
+    inc_consumer_in_progress,
+    observe_consumer_result,
+    start_metrics_http_server,
+)
+from core.observability import clear_request_id, set_request_id
 
 logger = logging.getLogger("terrierconnect.consumer")
+tracer = trace.get_tracer(__name__)
 
 CONSUMER_REGISTRY: dict[str, dict[str, Any]] = {}
 
@@ -27,6 +44,7 @@ class CDCMessage:
     key: dict[str, Any]
     payload: dict[str, Any]
     raw: dict[str, Any]
+    headers: dict[str, str]
     op: str | None
     table: str | None
     source_ts_ms: int | None
@@ -57,9 +75,10 @@ def _get_table_name(topic: str, raw: dict[str, Any]) -> str:
     return topic.split(".")[-1]
 
 
-def _build_message(topic: str, key, value) -> CDCMessage:
+def _build_message(topic: str, key, value, headers=None) -> CDCMessage:
     raw = _json_loads(value)
     message_key = _json_loads(key)
+    message_headers = normalize_message_headers(headers)
 
     payload = raw.get("after") if isinstance(raw.get("after"), dict) else raw
     if not isinstance(payload, dict):
@@ -75,6 +94,7 @@ def _build_message(topic: str, key, value) -> CDCMessage:
         key=message_key,
         payload=payload,
         raw=raw,
+        headers=message_headers,
         op=op if isinstance(op, str) else None,
         table=_get_table_name(topic, raw),
         source_ts_ms=source_ts_ms,
@@ -355,6 +375,8 @@ class Command(BaseCommand):
         parser.add_argument("--group-suffix", default="", help="Consumer group suffix")
 
     def handle(self, *args, **options):
+        start_metrics_http_server()
+
         name = options["consumer"]
         spec = CONSUMER_REGISTRY[name]
 
@@ -399,12 +421,72 @@ class Command(BaseCommand):
                 logger.error("Consumer error: %s", msg.error())
                 continue
 
+            processing_started_at = None
+            message_age_seconds = None
+            in_progress = False
+            event_topic = msg.topic()
+
             try:
-                event = _build_message(msg.topic(), msg.key(), msg.value())
-                spec["handler"](event)
-                consumer.commit(message=msg, asynchronous=False)
-            except Exception:
+                message_headers = normalize_message_headers(msg.headers())
+                request_id = get_request_id_from_headers(message_headers)
+                event = _build_message(msg.topic(), msg.key(), msg.value(), message_headers)
+                event_topic = event.topic
+                processing_started_at = time.perf_counter()
+
+                if event.source_ts_ms is not None:
+                    message_age_seconds = max(0.0, time.time() - (event.source_ts_ms / 1000.0))
+
+                inc_consumer_in_progress(consumer=name)
+                in_progress = True
+
+                with tracer.start_as_current_span(
+                    f"kafka consume {name}",
+                    context=extract_context_from_headers(message_headers),
+                    kind=SpanKind.CONSUMER,
+                    attributes={
+                        "messaging.system": "kafka",
+                        "messaging.destination.name": event.topic,
+                        "messaging.operation": "process",
+                        "messaging.kafka.consumer.group": group_id,
+                    },
+                ) as span:
+                    if request_id:
+                        set_request_id(request_id)
+
+                    if event.table:
+                        span.set_attribute("db.cassandra.table", event.table)
+                    if event.op:
+                        span.set_attribute("db.operation", event.op)
+                    if event.source_ts_ms is not None:
+                        span.set_attribute("messaging.source.timestamp_ms", event.source_ts_ms)
+
+                    spec["handler"](event)
+                    consumer.commit(message=msg, asynchronous=False)
+                    observe_consumer_result(
+                        consumer=name,
+                        topic=event.topic,
+                        result="success",
+                        duration_seconds=time.perf_counter() - processing_started_at,
+                        message_age_seconds=message_age_seconds,
+                    )
+            except Exception as exc:
+                current_span = trace.get_current_span()
+                current_span.record_exception(exc)
+                current_span.set_status(Status(StatusCode.ERROR, str(exc)))
+                observe_consumer_result(
+                    consumer=name,
+                    topic=event_topic,
+                    result="error",
+                    duration_seconds=(time.perf_counter() - processing_started_at)
+                    if processing_started_at is not None
+                    else 0.0,
+                    message_age_seconds=message_age_seconds,
+                )
                 logger.exception("Consumer '%s' handler error", name)
+            finally:
+                if in_progress:
+                    dec_consumer_in_progress(consumer=name)
+                clear_request_id()
 
         consumer.close()
         self.stdout.write(self.style.SUCCESS(f"Consumer '{name}' shut down."))

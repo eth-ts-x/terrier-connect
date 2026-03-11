@@ -1,5 +1,7 @@
 import axios from "axios";
 
+import { createRequestId } from "./requestId";
+
 const GRAPHQL_URL = process.env.REACT_APP_GRAPHQL_URL || "/graphql";
 
 const graphqlClient = axios.create({
@@ -8,6 +10,12 @@ const graphqlClient = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
+});
+
+graphqlClient.interceptors.request.use((config) => {
+  config.headers = config.headers ?? {};
+  config.headers["X-Request-ID"] = createRequestId();
+  return config;
 });
 
 const getGraphQLErrorMessage = (errors: Array<{ message?: string }> | undefined): string => {

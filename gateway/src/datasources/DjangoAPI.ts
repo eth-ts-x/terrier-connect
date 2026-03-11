@@ -1,4 +1,5 @@
 import { RESTDataSource } from "@apollo/datasource-rest";
+import { context, propagation } from "@opentelemetry/api";
 
 export interface GatewayUser {
   id: number;
@@ -86,12 +87,22 @@ export class DjangoAPI extends RESTDataSource {
   override baseURL: string;
   private readonly authorization: string;
   private readonly cookie: string;
+  private readonly xRequestId: string;
+  private readonly traceparent: string;
 
-  constructor(options: { baseURL: string; authorization?: string; cookie?: string }) {
+  constructor(options: {
+    baseURL: string;
+    authorization?: string;
+    cookie?: string;
+    xRequestId?: string;
+    traceparent?: string;
+  }) {
     super();
     this.baseURL = options.baseURL;
     this.authorization = options.authorization ?? "";
     this.cookie = options.cookie ?? "";
+    this.xRequestId = options.xRequestId ?? "";
+    this.traceparent = options.traceparent ?? "";
   }
 
   override resolveURL(path: string, request: any) {
@@ -108,6 +119,16 @@ export class DjangoAPI extends RESTDataSource {
 
     if (this.cookie) {
       request.headers.cookie = this.cookie;
+    }
+
+    if (this.xRequestId) {
+      request.headers["x-request-id"] = this.xRequestId;
+    }
+
+    propagation.inject(context.active(), request.headers);
+
+    if (!request.headers.traceparent && this.traceparent) {
+      request.headers.traceparent = this.traceparent;
     }
   }
 

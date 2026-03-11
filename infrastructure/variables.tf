@@ -191,3 +191,21 @@ variable "github_connection_name" {
   type        = string
   default     = "terrier-connect-github"
 }
+
+variable "alert_notification_email" {
+  description = "Optional email address for Cloud Monitoring alert notifications"
+  type        = string
+  default     = ""
+}
+
+variable "enable_gateway_slos" {
+  description = "Create gateway metric-backed SLOs and burn-rate alerts after Managed Prometheus metrics are visible in Cloud Monitoring"
+  type        = bool
+  default     = false
+}
+
+variable "enable_metric_alert_policies" {
+  description = "Create PromQL metric-backed alert policies after Prometheus metrics are visible in Cloud Monitoring"
+  type        = bool
+  default     = false
+}

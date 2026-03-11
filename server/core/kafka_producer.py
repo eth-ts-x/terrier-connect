@@ -8,10 +8,16 @@ to guarantee at-least-once semantics with dedup at the broker level.
 import atexit
 import json
 import logging
+from typing import Any, Mapping, Sequence
 
 from django.conf import settings
+from opentelemetry import trace
+from opentelemetry.trace import SpanKind
+
+from .async_tracing import encode_kafka_headers
 
 logger = logging.getLogger("terrierconnect.kafka")
+tracer = trace.get_tracer(__name__)
 
 _producer = None
 
@@ -59,7 +65,13 @@ def flush_events(timeout: float = 5.0):
     return remaining
 
 
-def send_event(topic: str, key: str, payload: dict):
+def send_event(
+    topic: str,
+    key: str,
+    payload: dict,
+    *,
+    headers: Mapping[str, Any] | Sequence[tuple[str, Any]] | None = None,
+):
     """
     Publish a JSON event to Kafka. Non-blocking (buffered).
     Call flush() at process shutdown to ensure delivery.
@@ -69,16 +81,33 @@ def send_event(topic: str, key: str, payload: dict):
         logger.warning("Kafka unavailable — dropping event topic=%s key=%s", topic, key)
         return
 
-    producer.produce(
-        topic=topic,
-        key=key.encode("utf-8") if isinstance(key, str) else key,
-        value=json.dumps(payload, default=str).encode("utf-8"),
-        callback=_delivery_callback,
-    )
-    producer.poll(0)  # trigger callback delivery
+    with tracer.start_as_current_span(
+        f"kafka publish {topic}",
+        kind=SpanKind.PRODUCER,
+        attributes={
+            "messaging.system": "kafka",
+            "messaging.destination.name": topic,
+            "messaging.operation": "publish",
+        },
+    ):
+        producer.produce(
+            topic=topic,
+            key=key.encode("utf-8") if isinstance(key, str) else key,
+            value=json.dumps(payload, default=str).encode("utf-8"),
+            headers=encode_kafka_headers(headers),
+            callback=_delivery_callback,
+        )
+        producer.poll(0)  # trigger callback delivery
 
 
-def send_event_sync(topic: str, key: str, payload: dict, timeout: float = 5.0):
+def send_event_sync(
+    topic: str,
+    key: str,
+    payload: dict,
+    timeout: float = 5.0,
+    *,
+    headers: Mapping[str, Any] | Sequence[tuple[str, Any]] | None = None,
+):
     """Publish a JSON event to Kafka and wait for broker acknowledgement."""
     producer = _get_producer()
     if producer is None:
@@ -93,18 +122,28 @@ def send_event_sync(topic: str, key: str, payload: dict, timeout: float = 5.0):
         else:
             logger.debug("Kafka delivered: topic=%s partition=%s", msg.topic(), msg.partition())
 
-    producer.produce(
-        topic=topic,
-        key=key.encode("utf-8") if isinstance(key, str) else key,
-        value=json.dumps(payload, default=str).encode("utf-8"),
-        callback=_sync_callback,
-    )
-    producer.poll(0)
-    remaining = flush_events(timeout)
-    if remaining:
-        raise RuntimeError(f"Kafka flush timed out with {remaining} pending message(s)")
-    if errors:
-        raise RuntimeError(errors[0])
+    with tracer.start_as_current_span(
+        f"kafka publish {topic}",
+        kind=SpanKind.PRODUCER,
+        attributes={
+            "messaging.system": "kafka",
+            "messaging.destination.name": topic,
+            "messaging.operation": "publish",
+        },
+    ):
+        producer.produce(
+            topic=topic,
+            key=key.encode("utf-8") if isinstance(key, str) else key,
+            value=json.dumps(payload, default=str).encode("utf-8"),
+            headers=encode_kafka_headers(headers),
+            callback=_sync_callback,
+        )
+        producer.poll(0)
+        remaining = flush_events(timeout)
+        if remaining:
+            raise RuntimeError(f"Kafka flush timed out with {remaining} pending message(s)")
+        if errors:
+            raise RuntimeError(errors[0])
 
 
 atexit.register(flush_events)

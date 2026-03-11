@@ -10,6 +10,7 @@ import zlib
 from cassandra.cqlengine.query import BatchQuery
 from django.conf import settings
 
+from .async_tracing import capture_message_headers, serialize_message_headers
 from .cassandra_models import ProjectionOutbox
 
 
@@ -55,6 +56,7 @@ def _emit(
         topic=topic,
         event_key=_serialize_key(key),
         payload=json.dumps(payload, default=str),
+        headers=serialize_message_headers(capture_message_headers()),
         source=str(payload.get("__table", "") or ""),
         op=str(payload.get("__op", "") or ""),
         attempts=0,

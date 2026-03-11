@@ -14,6 +14,8 @@ appConfig:
   DB_HOST: 127.0.0.1
   DB_PORT: "5432"
   DEBUG: "0"
+  APP_ENV: production
+  GOOGLE_CLOUD_PROJECT: ""
   ALLOWED_HOSTS: example.com,www.example.com,localhost,127.0.0.1
   CASSANDRA_HOSTS: cassandra.example.internal
   CASSANDRA_PORT: "9042"
@@ -21,6 +23,8 @@ appConfig:
   REDIS_URL: redis://redis.example.internal:6379/0
   ELASTICSEARCH_URL: http://elasticsearch.example.internal:9200
   KAFKA_BOOTSTRAP_SERVERS: kafka.example.internal:9092
+  KAFKA_CONNECT_URL: http://kafka-connect.example.internal:8083
+  KAFKA_CONNECT_DLQ_TOPICS: dlq-elasticsearch-posts
   SECRET_KEY: ""
   USE_GCS: "1"
   GS_BUCKET_NAME: terrier-connect-media
@@ -88,6 +92,9 @@ server:
     readinessPath: /api/posts/health/
     livenessPath: /api/posts/health/
     hostHeader: localhost
+  metrics:
+    enabled: true
+    path: /metrics
   resources:
     requests:
       cpu: 100m
@@ -104,6 +111,9 @@ gateway:
   service:
     port: 4000
   corsOrigin: https://example.com,https://www.example.com
+  metrics:
+    enabled: true
+    path: /metrics
   resources:
     requests:
       cpu: 50m
@@ -119,6 +129,11 @@ workerResources:
   limits:
     cpu: 500m
     memory: 512Mi
+
+workerMetrics:
+  enabled: true
+  port: 9100
+  path: /metrics
 
 workers:
   - name: outbox-relay
@@ -141,6 +156,28 @@ workers:
   - name: search-indexer
     consumer: search_indexer
     replicaCount: 1
+  - name: connect-monitor
+    command:
+      - python
+      - manage.py
+      - run_connect_monitor
+      - --poll-interval
+      - "30"
+    replicaCount: 1
+
+observability:
+  managedPrometheus:
+    enabled: true
+    interval: 30s
+    timeout: 10s
+  tracing:
+    enabled: true
+    otlpEndpoint: https://telemetry.googleapis.com
+    otlpProtocol: http/protobuf
+    gcpAuth: true
+    propagators: tracecontext,baggage
+    sampler: parentbased_traceidratio
+    samplerArg: "0.1"
 
 ingress:
   enabled: true

@@ -7,6 +7,7 @@ metadata:
   labels:
     {{- include "terrier-connect.labels" $ | nindent 4 }}
     app.kubernetes.io/component: consumer-{{ $worker.name }}
+    app.kubernetes.io/component-group: worker
 spec:
   replicas: {{ $worker.replicaCount }}
   selector:
@@ -23,18 +24,32 @@ spec:
       labels:
         {{- include "terrier-connect.selectorLabels" $ | nindent 8 }}
         app.kubernetes.io/component: consumer-{{ $worker.name }}
+        app.kubernetes.io/component-group: worker
     spec:
       serviceAccountName: {{ include "terrier-connect.serverServiceAccountName" $ }}
       containers:
         - name: consumer
           image: "{{ $.Values.server.image.repository }}:{{ $.Values.server.image.tag }}"
           imagePullPolicy: {{ $.Values.imagePullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: {{ $.Values.workerMetrics.port }}
           command: {{ toJson (default (list "python" "manage.py" "run_consumer" "--consumer" $worker.consumer) $worker.command) }}
           resources:
             {{- toYaml $.Values.workerResources | nindent 12 }}
           env:
             - name: SKIP_STARTUP_INIT
               value: "1"
+            - name: ASYNC_METRICS_ENABLED
+              value: {{ ternary "1" "0" $.Values.workerMetrics.enabled | quote }}
+            - name: ASYNC_METRICS_PORT
+              value: {{ $.Values.workerMetrics.port | quote }}
+            - name: ASYNC_METRICS_HOST
+              value: "0.0.0.0"
+            - name: SERVICE_NAME
+              value: terrier-connect-worker-{{ $worker.name }}
+            - name: SERVICE_VERSION
+              value: {{ $.Values.server.image.tag | quote }}
           envFrom:
             - configMapRef:
                 name: {{ include "terrier-connect.fullname" $ }}-app-config

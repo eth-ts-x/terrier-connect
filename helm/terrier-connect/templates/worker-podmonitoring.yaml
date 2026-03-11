@@ -1,0 +1,19 @@
+{{- if and .Values.observability.managedPrometheus.enabled .Values.workerMetrics.enabled }}
+apiVersion: monitoring.googleapis.com/v1
+kind: PodMonitoring
+metadata:
+  name: {{ include "terrier-connect.fullname" . }}-workers
+  labels:
+    {{- include "terrier-connect.labels" . | nindent 4 }}
+    app.kubernetes.io/component-group: worker
+spec:
+  selector:
+    matchLabels:
+      {{- include "terrier-connect.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component-group: worker
+  endpoints:
+    - port: metrics
+      path: {{ .Values.workerMetrics.path | quote }}
+      interval: {{ .Values.observability.managedPrometheus.interval | quote }}
+      timeout: {{ .Values.observability.managedPrometheus.timeout | quote }}
+{{- end }}

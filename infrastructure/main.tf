@@ -54,6 +54,8 @@ resource "google_project_service" "apis" {
     "dns.googleapis.com",
     "logging.googleapis.com",
     "monitoring.googleapis.com",
+    "cloudtrace.googleapis.com",
+    "telemetry.googleapis.com",
     "secretmanager.googleapis.com"
   ])
   service            = each.key
@@ -107,9 +109,34 @@ resource "google_container_cluster" "gke" {
   deletion_protection      = false
   remove_default_node_pool = true
   initial_node_count       = 1
+  logging_service          = "logging.googleapis.com/kubernetes"
+  monitoring_service       = "monitoring.googleapis.com/kubernetes"
 
   network    = google_compute_network.vpc_network.id
   subnetwork = google_compute_subnetwork.gke_subnet.id
+
+  logging_config {
+    enable_components = ["SYSTEM_COMPONENTS", "WORKLOADS"]
+  }
+
+  monitoring_config {
+    enable_components = [
+      "SYSTEM_COMPONENTS",
+      "APISERVER",
+      "SCHEDULER",
+      "CONTROLLER_MANAGER",
+      "STORAGE",
+      "POD",
+      "DAEMONSET",
+      "DEPLOYMENT",
+      "STATEFULSET",
+      "HPA",
+    ]
+
+    managed_prometheus {
+      enabled = true
+    }
+  }
 
   node_config {
     disk_size_gb = 30
@@ -796,6 +823,18 @@ resource "google_project_iam_member" "gke_workload_cloudsql" {
   member  = "serviceAccount:${google_service_account.gke_workload.email}"
 }
 
+resource "google_project_iam_member" "gke_workload_monitoring" {
+  project = var.project_id
+  role    = "roles/monitoring.metricWriter"
+  member  = "serviceAccount:${google_service_account.gke_workload.email}"
+}
+
+resource "google_project_iam_member" "gke_workload_traces" {
+  project = var.project_id
+  role    = "roles/telemetry.tracesWriter"
+  member  = "serviceAccount:${google_service_account.gke_workload.email}"
+}
+
 resource "google_storage_bucket_iam_member" "gke_workload_storage" {
   bucket = google_storage_bucket.media.name
   role   = "roles/storage.objectAdmin"
@@ -864,6 +903,9 @@ locals {
   platform_namespace        = var.platform_namespace
   platform_storage_class_name = var.platform_storage_class != "" ? var.platform_storage_class : "standard-rwo"
   cluster_domain            = var.k8s_cluster_domain
+  gateway_monitoring_service_id = "terrier-connect-gateway"
+  gateway_request_counter_metric = "prometheus.googleapis.com/gateway_http_requests_total/counter"
+  gateway_request_latency_metric = "prometheus.googleapis.com/gateway_http_request_duration_seconds/histogram"
   bitnami_oci_repository    = "oci://registry-1.docker.io/bitnamicharts"
   redis_chart_version       = "25.3.2"
   kafka_chart_version       = "32.4.3"
@@ -902,6 +944,28 @@ locals {
     "roles/storage.admin",                # Terraform state bucket
     "roles/logging.logWriter",            # write Cloud Build logs
   ])
+  gateway_request_total_filter = join(" AND ", [
+    "resource.type=\"prometheus_target\"",
+    "metric.type=\"${local.gateway_request_counter_metric}\"",
+  ])
+  gateway_request_5xx_filter = join(" AND ", [
+    local.gateway_request_total_filter,
+    "metric.labels.status_code=monitoring.regex.full_match(\"^5..\")",
+  ])
+  gateway_request_latency_filter = join(" AND ", [
+    "resource.type=\"prometheus_target\"",
+    "metric.type=\"${local.gateway_request_latency_metric}\"",
+  ])
+  public_homepage_uptime_filter = join(" AND ", [
+    "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\"",
+    "resource.type=\"uptime_url\"",
+    "metric.labels.check_id=\"${google_monitoring_uptime_check_config.public_homepage.uptime_check_id}\"",
+  ])
+  public_api_health_uptime_filter = join(" AND ", [
+    "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\"",
+    "resource.type=\"uptime_url\"",
+    "metric.labels.check_id=\"${google_monitoring_uptime_check_config.public_api_health.uptime_check_id}\"",
+  ])
 }
 
 resource "google_project_iam_member" "cloudbuild_roles" {
@@ -909,6 +973,876 @@ resource "google_project_iam_member" "cloudbuild_roles" {
   project    = var.project_id
   role       = each.value
   member     = local.cloudbuild_sa
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_monitoring_notification_channel" "ops_email" {
+  count = trimspace(var.alert_notification_email) != "" ? 1 : 0
+
+  display_name = "Terrier Connect Ops Email"
+  type         = "email"
+  labels = {
+    email_address = trimspace(var.alert_notification_email)
+  }
+  force_delete = false
+
+  user_labels = {
+    service = "terrier-connect"
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_monitoring_custom_service" "gateway" {
+  service_id   = local.gateway_monitoring_service_id
+  display_name = "Terrier Connect Gateway"
+
+  user_labels = {
+    service = "terrier-connect"
+    tier    = "edge"
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_monitoring_slo" "gateway_availability" {
+  count        = var.enable_gateway_slos ? 1 : 0
+  service      = google_monitoring_custom_service.gateway.service_id
+  slo_id       = "gateway-availability-30d"
+  display_name = "Gateway availability 99% over 30 days"
+  goal         = 0.99
+
+  rolling_period_days = 30
+
+  request_based_sli {
+    good_total_ratio {
+      bad_service_filter   = local.gateway_request_5xx_filter
+      total_service_filter = local.gateway_request_total_filter
+    }
+  }
+
+  user_labels = {
+    service = "terrier-connect"
+    sli     = "availability"
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_monitoring_slo" "gateway_latency" {
+  count        = var.enable_gateway_slos ? 1 : 0
+  service      = google_monitoring_custom_service.gateway.service_id
+  slo_id       = "gateway-latency-30d"
+  display_name = "Gateway latency 95% under 1s over 30 days"
+  goal         = 0.95
+
+  rolling_period_days = 30
+
+  request_based_sli {
+    distribution_cut {
+      distribution_filter = local.gateway_request_latency_filter
+
+      range {
+        max = 1
+      }
+    }
+  }
+
+  user_labels = {
+    service = "terrier-connect"
+    sli     = "latency"
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_monitoring_uptime_check_config" "public_homepage" {
+  display_name       = "Terrier Connect public homepage"
+  period             = "60s"
+  timeout            = "10s"
+  checker_type       = "STATIC_IP_CHECKERS"
+
+  http_check {
+    path         = "/"
+    use_ssl      = true
+    validate_ssl = true
+
+    accepted_response_status_codes {
+      status_class = "STATUS_CLASS_2XX"
+    }
+  }
+
+  monitored_resource {
+    type = "uptime_url"
+    labels = {
+      project_id = var.project_id
+      host       = var.domain_name
+    }
+  }
+
+  user_labels = {
+    service  = "terrier-connect"
+    surface  = "public-frontend"
+    protocol = "https"
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_monitoring_uptime_check_config" "public_api_health" {
+  display_name       = "Terrier Connect public API health"
+  period             = "60s"
+  timeout            = "10s"
+  checker_type       = "STATIC_IP_CHECKERS"
+
+  http_check {
+    path         = "/api/posts/health/"
+    use_ssl      = true
+    validate_ssl = true
+
+    accepted_response_status_codes {
+      status_class = "STATUS_CLASS_2XX"
+    }
+  }
+
+  content_matchers {
+    content = "healthy"
+  }
+
+  monitored_resource {
+    type = "uptime_url"
+    labels = {
+      project_id = var.project_id
+      host       = var.domain_name
+    }
+  }
+
+  user_labels = {
+    service  = "terrier-connect"
+    surface  = "public-api"
+    protocol = "https"
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_monitoring_dashboard" "application_overview" {
+  dashboard_json = jsonencode({
+    displayName = "Terrier Connect Application Overview"
+    annotations = {
+      defaultResourceNames = ["projects/${var.project_id}"]
+      eventAnnotations = [
+        {
+          displayName = "GKE pod crashes"
+          eventType   = "GKE_POD_CRASH"
+          enabled     = true
+        },
+        {
+          displayName = "Alert incidents"
+          eventType   = "CLOUD_ALERTING_ALERT"
+          enabled     = true
+        },
+      ]
+    }
+    mosaicLayout = {
+      columns = 12
+      tiles = [
+        {
+          xPos   = 0
+          yPos   = 0
+          width  = 12
+          height = 2
+          widget = {
+            title = "Observability scope"
+            text = {
+              format = "MARKDOWN"
+              content = join("\n", [
+                "## Terrier Connect observability overview",
+                "Tracks gateway traffic, async pipeline health, and active incidents.",
+                "Trace context now flows from Django requests into the Cassandra outbox, Kafka relay, and worker consumers.",
+              ])
+            }
+          }
+        },
+        {
+          xPos   = 0
+          yPos   = 2
+          width  = 4
+          height = 4
+          widget = {
+            title = "Gateway request rate"
+            xyChart = {
+              dataSets = [
+                {
+                  plotType = "LINE"
+                  legendTemplate = "req/s"
+                  minAlignmentPeriod = "60s"
+                  timeSeriesQuery = {
+                    unitOverride    = "1/s"
+                    prometheusQuery = "sum(rate(gateway_http_requests_total[5m]))"
+                  }
+                }
+              ]
+              yAxis = {
+                label = "Requests / second"
+                scale = "LINEAR"
+              }
+            }
+          }
+        },
+        {
+          xPos   = 4
+          yPos   = 2
+          width  = 4
+          height = 4
+          widget = {
+            title = "Gateway 5xx ratio"
+            xyChart = {
+              dataSets = [
+                {
+                  plotType = "LINE"
+                  legendTemplate = "5xx ratio"
+                  minAlignmentPeriod = "60s"
+                  timeSeriesQuery = {
+                    unitOverride = "10^2.%"
+                    prometheusQuery = "100 * sum(rate(gateway_http_requests_total{status_code=~\"5..\"}[5m])) / clamp_min(sum(rate(gateway_http_requests_total[5m])), 0.001)"
+                  }
+                }
+              ]
+              yAxis = {
+                label = "Percent"
+                scale = "LINEAR"
+              }
+            }
+          }
+        },
+        {
+          xPos   = 8
+          yPos   = 2
+          width  = 4
+          height = 4
+          widget = {
+            title = "Gateway p95 latency"
+            xyChart = {
+              dataSets = [
+                {
+                  plotType = "LINE"
+                  legendTemplate = "p95 latency"
+                  minAlignmentPeriod = "60s"
+                  timeSeriesQuery = {
+                    unitOverride    = "s"
+                    prometheusQuery = "histogram_quantile(0.95, sum by (le) (rate(gateway_http_request_duration_seconds_bucket[5m])))"
+                  }
+                }
+              ]
+              yAxis = {
+                label = "Seconds"
+                scale = "LINEAR"
+              }
+            }
+          }
+        },
+        {
+          xPos   = 0
+          yPos   = 6
+          width  = 6
+          height = 4
+          widget = {
+            title = "Django request volume"
+            xyChart = {
+              dataSets = [
+                {
+                  plotType = "LINE"
+                  legendTemplate = "requests / second"
+                  minAlignmentPeriod = "60s"
+                  timeSeriesQuery = {
+                    unitOverride    = "1/s"
+                    prometheusQuery = "sum(rate(django_http_requests_before_middlewares_total[5m]))"
+                  }
+                }
+              ]
+              yAxis = {
+                label = "Requests / second"
+                scale = "LINEAR"
+              }
+            }
+          }
+        },
+        {
+          xPos   = 6
+          yPos   = 6
+          width  = 6
+          height = 4
+          widget = {
+            title = "Async worker errors"
+            logsPanel = {
+              resourceNames = ["projects/${var.project_id}"]
+              filter = join("\n", [
+                "resource.type=\"k8s_container\"",
+                "severity>=ERROR",
+                "(",
+                "  jsonPayload.message:\"Outbox relay failed\"",
+                "  OR jsonPayload.message:\"handler error\"",
+                "  OR jsonPayload.message:\"Kafka delivery failed\"",
+                "  OR textPayload:\"Outbox relay failed\"",
+                "  OR textPayload:\"handler error\"",
+                "  OR textPayload:\"Kafka delivery failed\"",
+                ")",
+              ])
+            }
+          }
+        },
+        {
+          xPos   = 0
+          yPos   = 10
+          width  = 4
+          height = 4
+          widget = {
+            title = "Outbox oldest event age"
+            xyChart = {
+              dataSets = [
+                {
+                  plotType = "LINE"
+                  legendTemplate = "oldest age"
+                  minAlignmentPeriod = "60s"
+                  timeSeriesQuery = {
+                    unitOverride    = "s"
+                    prometheusQuery = "max(terrier_async_outbox_oldest_event_age_seconds)"
+                  }
+                }
+              ]
+              yAxis = {
+                label = "Seconds"
+                scale = "LINEAR"
+              }
+            }
+          }
+        },
+        {
+          xPos   = 4
+          yPos   = 10
+          width  = 4
+          height = 4
+          widget = {
+            title = "Outbox pending events"
+            xyChart = {
+              dataSets = [
+                {
+                  plotType = "LINE"
+                  legendTemplate = "pending"
+                  minAlignmentPeriod = "60s"
+                  timeSeriesQuery = {
+                    unitOverride    = "1"
+                    prometheusQuery = "max(terrier_async_outbox_pending_events)"
+                  }
+                }
+              ]
+              yAxis = {
+                label = "Events"
+                scale = "LINEAR"
+              }
+            }
+          }
+        },
+        {
+          xPos   = 8
+          yPos   = 10
+          width  = 4
+          height = 4
+          widget = {
+            title = "Async consumer failures"
+            xyChart = {
+              dataSets = [
+                {
+                  plotType = "STACKED_BAR"
+                  legendTemplate = "{{consumer}}"
+                  minAlignmentPeriod = "60s"
+                  timeSeriesQuery = {
+                    unitOverride    = "1/s"
+                    prometheusQuery = "sum by (consumer) (rate(terrier_async_consumer_events_total{result=\"error\"}[5m]))"
+                  }
+                }
+              ]
+              yAxis = {
+                label = "Errors / second"
+                scale = "LINEAR"
+              }
+            }
+          }
+        },
+        {
+          xPos   = 0
+          yPos   = 14
+          width  = 4
+          height = 4
+          widget = {
+            title = "Kafka Connect availability"
+            scorecard = {
+              timeSeriesQuery = {
+                prometheusQuery = "max(terrier_kafka_connect_up)"
+              }
+              gaugeView = {
+                lowerBound = 0
+                upperBound = 1
+              }
+            }
+          }
+        },
+        {
+          xPos   = 4
+          yPos   = 14
+          width  = 4
+          height = 4
+          widget = {
+            title = "Kafka Connect failed connectors"
+            xyChart = {
+              dataSets = [
+                {
+                  plotType = "STACKED_BAR"
+                  legendTemplate = "{{connector}}"
+                  minAlignmentPeriod = "60s"
+                  timeSeriesQuery = {
+                    unitOverride    = "1"
+                    prometheusQuery = "max by (connector) (terrier_kafka_connect_connector_state{state=\"FAILED\"})"
+                  }
+                }
+              ]
+              yAxis = {
+                label = "Failed state"
+                scale = "LINEAR"
+              }
+            }
+          }
+        },
+        {
+          xPos   = 8
+          yPos   = 14
+          width  = 4
+          height = 4
+          widget = {
+            title = "DLQ retained records"
+            xyChart = {
+              dataSets = [
+                {
+                  plotType = "LINE"
+                  legendTemplate = "{{topic}}"
+                  minAlignmentPeriod = "60s"
+                  timeSeriesQuery = {
+                    unitOverride    = "1"
+                    prometheusQuery = "sum by (topic) (terrier_kafka_connect_dlq_records)"
+                  }
+                }
+              ]
+              yAxis = {
+                label = "Records"
+                scale = "LINEAR"
+              }
+            }
+          }
+        },
+        {
+          xPos   = 0
+          yPos   = 18
+          width  = 12
+          height = 3
+          widget = {
+            title = "Open incidents"
+            incidentList = {}
+          }
+        },
+      ]
+    }
+  })
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_monitoring_alert_policy" "gateway_high_error_ratio" {
+  count        = var.enable_metric_alert_policies ? 1 : 0
+  display_name = "Terrier Connect gateway high 5xx ratio"
+  combiner     = "OR"
+  severity     = "ERROR"
+
+  conditions {
+    display_name = "Gateway 5xx ratio > 5%"
+    condition_prometheus_query_language {
+      query = "sum(rate(gateway_http_requests_total{status_code=~\"5..\"}[5m])) / clamp_min(sum(rate(gateway_http_requests_total[5m])), 0.001) > 0.05"
+      duration            = "300s"
+      evaluation_interval = "60s"
+      alert_rule          = "GatewayHigh5xxRatio"
+      rule_group          = "terrier-connect"
+    }
+  }
+
+  notification_channels = google_monitoring_notification_channel.ops_email[*].name
+
+  alert_strategy {
+    auto_close = "1800s"
+  }
+
+  documentation {
+    mime_type = "text/markdown"
+    subject   = "Terrier Connect gateway error ratio is elevated"
+    content   = "The gateway is returning more than 5% 5xx responses for at least 5 minutes. Check the gateway deployment, upstream Django availability, and recent trace samples in Cloud Trace."
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_monitoring_alert_policy" "gateway_high_latency" {
+  count        = var.enable_metric_alert_policies ? 1 : 0
+  display_name = "Terrier Connect gateway high p95 latency"
+  combiner     = "OR"
+  severity     = "WARNING"
+
+  conditions {
+    display_name = "Gateway p95 latency > 1s"
+    condition_prometheus_query_language {
+      query = "histogram_quantile(0.95, sum by (le) (rate(gateway_http_request_duration_seconds_bucket[5m]))) > 1"
+      duration            = "300s"
+      evaluation_interval = "60s"
+      alert_rule          = "GatewayHighLatency"
+      rule_group          = "terrier-connect"
+    }
+  }
+
+  notification_channels = google_monitoring_notification_channel.ops_email[*].name
+
+  alert_strategy {
+    auto_close = "1800s"
+  }
+
+  documentation {
+    mime_type = "text/markdown"
+    subject   = "Terrier Connect gateway latency is elevated"
+    content   = "The gateway p95 request latency has stayed above 1 second for at least 5 minutes. Inspect recent traces for slow resolvers, Django upstream latency, and platform saturation."
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_monitoring_alert_policy" "async_pipeline_failures" {
+  display_name = "Terrier Connect async pipeline failures"
+  combiner     = "OR"
+  severity     = "ERROR"
+
+  conditions {
+    display_name = "Outbox relay or consumer handler failure logs"
+    condition_matched_log {
+      filter = join("\n", [
+        "resource.type=\"k8s_container\"",
+        "severity>=ERROR",
+        "(",
+        "  jsonPayload.message:\"Outbox relay failed\"",
+        "  OR jsonPayload.message:\"handler error\"",
+        "  OR jsonPayload.message:\"Kafka delivery failed\"",
+        "  OR textPayload:\"Outbox relay failed\"",
+        "  OR textPayload:\"handler error\"",
+        "  OR textPayload:\"Kafka delivery failed\"",
+        ")",
+      ])
+    }
+  }
+
+  notification_channels = google_monitoring_notification_channel.ops_email[*].name
+
+  alert_strategy {
+    auto_close = "1800s"
+    notification_rate_limit {
+      period = "300s"
+    }
+  }
+
+  documentation {
+    mime_type = "text/markdown"
+    subject   = "Terrier Connect async pipeline failure detected"
+    content   = "An async projection, Kafka publish, or worker handler failure was logged. Inspect the outbox relay and consumer workloads, then use the propagated traces to follow the failed event across the async pipeline."
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_monitoring_alert_policy" "async_outbox_backlog_age_high" {
+  count        = var.enable_metric_alert_policies ? 1 : 0
+  display_name = "Terrier Connect async outbox backlog age high"
+  combiner     = "OR"
+  severity     = "WARNING"
+
+  conditions {
+    display_name = "Outbox oldest pending event age > 5 minutes"
+    condition_prometheus_query_language {
+      query = "max(terrier_async_outbox_oldest_event_age_seconds) > 300"
+      duration            = "600s"
+      evaluation_interval = "60s"
+      alert_rule          = "AsyncOutboxBacklogAgeHigh"
+      rule_group          = "terrier-connect"
+    }
+  }
+
+  notification_channels = google_monitoring_notification_channel.ops_email[*].name
+
+  alert_strategy {
+    auto_close = "1800s"
+  }
+
+  documentation {
+    mime_type = "text/markdown"
+    subject   = "Terrier Connect async outbox backlog is aging"
+    content   = "The oldest pending event in the Cassandra outbox has been queued for more than 5 minutes for at least 10 minutes. Inspect the outbox relay deployment, Kafka connectivity, and worker saturation before user-visible async projections fall behind."
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_monitoring_alert_policy" "kafka_connect_down" {
+  count        = var.enable_metric_alert_policies ? 1 : 0
+  display_name = "Terrier Connect Kafka Connect down"
+  combiner     = "OR"
+  severity     = "ERROR"
+
+  conditions {
+    display_name = "Kafka Connect monitor reports down"
+    condition_prometheus_query_language {
+      query = "max(terrier_kafka_connect_up) < 1"
+      duration            = "300s"
+      evaluation_interval = "60s"
+      alert_rule          = "KafkaConnectDown"
+      rule_group          = "terrier-connect"
+    }
+  }
+
+  notification_channels = google_monitoring_notification_channel.ops_email[*].name
+
+  alert_strategy {
+    auto_close = "1800s"
+  }
+
+  documentation {
+    mime_type = "text/markdown"
+    subject   = "Terrier Connect Kafka Connect is unreachable"
+    content   = "The Kafka Connect monitor has not been able to query the Kafka Connect API for at least 5 minutes. Inspect the Kafka Connect deployment, service, and platform Kafka health before CDC or sink connectors fall behind."
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_monitoring_alert_policy" "kafka_connect_connector_failed" {
+  count        = var.enable_metric_alert_policies ? 1 : 0
+  display_name = "Terrier Connect Kafka Connect connector failed"
+  combiner     = "OR"
+  severity     = "ERROR"
+
+  conditions {
+    display_name = "Kafka Connect connector entered FAILED state"
+    condition_prometheus_query_language {
+      query = "max(terrier_kafka_connect_connector_state{state=\"FAILED\"}) >= 1"
+      duration            = "300s"
+      evaluation_interval = "60s"
+      alert_rule          = "KafkaConnectConnectorFailed"
+      rule_group          = "terrier-connect"
+    }
+  }
+
+  notification_channels = google_monitoring_notification_channel.ops_email[*].name
+
+  alert_strategy {
+    auto_close = "1800s"
+  }
+
+  documentation {
+    mime_type = "text/markdown"
+    subject   = "Terrier Connect Kafka Connect connector failed"
+    content   = "A Kafka Connect connector has remained in the FAILED state for at least 5 minutes. Inspect connector status, task traces, and Kafka Connect logs to restore CDC or sink processing."
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_monitoring_alert_policy" "kafka_connect_dlq_records_present" {
+  count        = var.enable_metric_alert_policies ? 1 : 0
+  display_name = "Terrier Connect Kafka Connect DLQ has retained records"
+  combiner     = "OR"
+  severity     = "WARNING"
+
+  conditions {
+    display_name = "DLQ retained records > 0"
+    condition_prometheus_query_language {
+      query = "sum(terrier_kafka_connect_dlq_records) > 0"
+      duration            = "600s"
+      evaluation_interval = "60s"
+      alert_rule          = "KafkaConnectDlqRecordsPresent"
+      rule_group          = "terrier-connect"
+    }
+  }
+
+  notification_channels = google_monitoring_notification_channel.ops_email[*].name
+
+  alert_strategy {
+    auto_close = "1800s"
+  }
+
+  documentation {
+    mime_type = "text/markdown"
+    subject   = "Terrier Connect Kafka Connect DLQ contains retained records"
+    content   = "Kafka Connect dead-letter topics have retained records for at least 10 minutes. Inspect the failed sink/source connector payloads, fix the underlying schema or data issue, and clear the DLQ backlog deliberately."
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_monitoring_alert_policy" "public_homepage_uptime_failing" {
+  display_name = "Terrier Connect public homepage uptime failing"
+  combiner     = "OR"
+  severity     = "CRITICAL"
+
+  conditions {
+    display_name = "Public homepage uptime fraction < 50%"
+
+    condition_threshold {
+      filter                  = local.public_homepage_uptime_filter
+      comparison              = "COMPARISON_LT"
+      threshold_value         = 0.5
+      duration                = "300s"
+      evaluation_missing_data = "EVALUATION_MISSING_DATA_ACTIVE"
+
+      aggregations {
+        alignment_period     = "300s"
+        per_series_aligner   = "ALIGN_NEXT_OLDER"
+        cross_series_reducer = "REDUCE_FRACTION_TRUE"
+      }
+
+      trigger {
+        count = 1
+      }
+    }
+  }
+
+  notification_channels = google_monitoring_notification_channel.ops_email[*].name
+
+  alert_strategy {
+    auto_close = "1800s"
+  }
+
+  documentation {
+    mime_type = "text/markdown"
+    subject   = "Terrier Connect public homepage is failing uptime checks"
+    content   = "External uptime checks to `https://${var.domain_name}/` have shown fewer than half of probes succeeding for at least 5 minutes. Inspect the GKE ingress, frontend service, TLS certificate status, and any recent deploys affecting public traffic."
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_monitoring_alert_policy" "public_api_health_uptime_failing" {
+  display_name = "Terrier Connect public API health uptime failing"
+  combiner     = "OR"
+  severity     = "CRITICAL"
+
+  conditions {
+    display_name = "Public API health uptime fraction < 50%"
+
+    condition_threshold {
+      filter                  = local.public_api_health_uptime_filter
+      comparison              = "COMPARISON_LT"
+      threshold_value         = 0.5
+      duration                = "300s"
+      evaluation_missing_data = "EVALUATION_MISSING_DATA_ACTIVE"
+
+      aggregations {
+        alignment_period     = "300s"
+        per_series_aligner   = "ALIGN_NEXT_OLDER"
+        cross_series_reducer = "REDUCE_FRACTION_TRUE"
+      }
+
+      trigger {
+        count = 1
+      }
+    }
+  }
+
+  notification_channels = google_monitoring_notification_channel.ops_email[*].name
+
+  alert_strategy {
+    auto_close = "1800s"
+  }
+
+  documentation {
+    mime_type = "text/markdown"
+    subject   = "Terrier Connect public API health check is failing"
+    content   = "External uptime checks to `https://${var.domain_name}/api/posts/health/` have shown fewer than half of probes succeeding for at least 5 minutes. Inspect the ingress, Django deployment, and backend dependencies surfaced by the health endpoint before the user-facing API becomes unavailable."
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_monitoring_alert_policy" "gateway_availability_fast_burn" {
+  count        = var.enable_gateway_slos ? 1 : 0
+  display_name = "Terrier Connect gateway availability fast burn"
+  combiner     = "OR"
+  severity     = "CRITICAL"
+
+  conditions {
+    display_name = "Gateway availability burn rate > 10 over 1 hour"
+
+    condition_threshold {
+      filter          = "select_slo_burn_rate(\"${google_monitoring_slo.gateway_availability[0].name}\", \"60m\")"
+      comparison      = "COMPARISON_GT"
+      threshold_value = 10
+      duration        = "0s"
+
+      trigger {
+        count = 1
+      }
+    }
+  }
+
+  notification_channels = google_monitoring_notification_channel.ops_email[*].name
+
+  alert_strategy {
+    auto_close = "1800s"
+  }
+
+  documentation {
+    mime_type = "text/markdown"
+    subject   = "Terrier Connect gateway is burning availability budget quickly"
+    content   = "Gateway availability is consuming error budget at more than 10x the sustainable rate over the last hour. Treat this as an urgent incident, inspect recent gateway and Django traces, and stabilize 5xx responses before the 30-day SLO is put at risk."
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_monitoring_alert_policy" "gateway_availability_slow_burn" {
+  count        = var.enable_gateway_slos ? 1 : 0
+  display_name = "Terrier Connect gateway availability slow burn"
+  combiner     = "OR"
+  severity     = "WARNING"
+
+  conditions {
+    display_name = "Gateway availability burn rate > 2 over 24 hours"
+
+    condition_threshold {
+      filter          = "select_slo_burn_rate(\"${google_monitoring_slo.gateway_availability[0].name}\", \"24h\")"
+      comparison      = "COMPARISON_GT"
+      threshold_value = 2
+      duration        = "0s"
+
+      trigger {
+        count = 1
+      }
+    }
+  }
+
+  notification_channels = google_monitoring_notification_channel.ops_email[*].name
+
+  alert_strategy {
+    auto_close = "1800s"
+  }
+
+  documentation {
+    mime_type = "text/markdown"
+    subject   = "Terrier Connect gateway availability budget is drifting down"
+    content   = "Gateway availability is consuming error budget at more than 2x the sustainable rate over the last 24 hours. Investigate recurring 5xx causes, recent deployments, and the health of upstream Django and platform dependencies before the monthly SLO is missed."
+  }
+
   depends_on = [google_project_service.apis]
 }
 

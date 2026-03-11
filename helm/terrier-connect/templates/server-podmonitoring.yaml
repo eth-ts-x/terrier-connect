@@ -1,0 +1,19 @@
+{{- if and .Values.observability.managedPrometheus.enabled .Values.server.metrics.enabled }}
+apiVersion: monitoring.googleapis.com/v1
+kind: PodMonitoring
+metadata:
+  name: {{ include "terrier-connect.fullname" . }}-server
+  labels:
+    {{- include "terrier-connect.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  selector:
+    matchLabels:
+      {{- include "terrier-connect.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: server
+  endpoints:
+    - port: http
+      path: {{ .Values.server.metrics.path | quote }}
+      interval: {{ .Values.observability.managedPrometheus.interval | quote }}
+      timeout: {{ .Values.observability.managedPrometheus.timeout | quote }}
+{{- end }}

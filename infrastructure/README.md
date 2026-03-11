@@ -39,6 +39,15 @@ Terraform also provisions the shared runtime services in the `terrier-platform` 
 - **Cloud Build trigger** for push-to-main deployments
 - **Workload Identity** service account for app workloads
 
+### Observability
+
+Terraform also manages production observability resources, including:
+
+- Cloud Monitoring dashboards
+- alert notification channels and alert policies
+- gateway SLOs and burn-rate alerts
+- public uptime checks for the homepage and API health endpoint
+
 ---
 
 ## Architecture
@@ -247,6 +256,8 @@ After `terraform apply`, these outputs are commonly used during debugging and de
 - `terraform output elasticsearch_url`
 - `terraform output cloudsql_private_ip_address`
 - `terraform output ingress_ip_address`
+
+For incident response and post-deploy verification, use the runbook in [documents/observability-runbook.md](../documents/observability-runbook.md).
 
 ---
 

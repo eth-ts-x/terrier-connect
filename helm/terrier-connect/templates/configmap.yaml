@@ -10,6 +10,8 @@ data:
   DB_HOST: {{ ternary "127.0.0.1" .Values.appConfig.DB_HOST .Values.cloudSqlProxy.enabled | quote }}
   DB_PORT: {{ .Values.appConfig.DB_PORT | quote }}
   DEBUG: {{ .Values.appConfig.DEBUG | quote }}
+  APP_ENV: {{ .Values.appConfig.APP_ENV | quote }}
+  GOOGLE_CLOUD_PROJECT: {{ .Values.appConfig.GOOGLE_CLOUD_PROJECT | quote }}
   ALLOWED_HOSTS: {{ .Values.appConfig.ALLOWED_HOSTS | quote }}
   CASSANDRA_HOSTS: {{ .Values.appConfig.CASSANDRA_HOSTS | quote }}
   CASSANDRA_PORT: {{ .Values.appConfig.CASSANDRA_PORT | quote }}
@@ -17,9 +19,18 @@ data:
   REDIS_URL: {{ .Values.appConfig.REDIS_URL | quote }}
   ELASTICSEARCH_URL: {{ .Values.appConfig.ELASTICSEARCH_URL | quote }}
   KAFKA_BOOTSTRAP_SERVERS: {{ .Values.appConfig.KAFKA_BOOTSTRAP_SERVERS | quote }}
+  KAFKA_CONNECT_URL: {{ .Values.appConfig.KAFKA_CONNECT_URL | quote }}
+  KAFKA_CONNECT_DLQ_TOPICS: {{ .Values.appConfig.KAFKA_CONNECT_DLQ_TOPICS | quote }}
   USE_GCS: {{ .Values.appConfig.USE_GCS | quote }}
   GS_BUCKET_NAME: {{ .Values.appConfig.GS_BUCKET_NAME | quote }}
   GS_PROJECT_ID: {{ .Values.appConfig.GS_PROJECT_ID | quote }}
   GS_QUERYSTRING_AUTH: {{ .Values.appConfig.GS_QUERYSTRING_AUTH | quote }}
   PROJECTION_EVENTS_ENABLED: {{ .Values.appConfig.PROJECTION_EVENTS_ENABLED | quote }}
   GOOGLE_OAUTH_CALLBACK_URL: {{ .Values.appConfig.GOOGLE_OAUTH_CALLBACK_URL | quote }}
+  OTEL_TRACES_ENABLED: {{ ternary "true" "false" .Values.observability.tracing.enabled | quote }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.observability.tracing.otlpEndpoint | quote }}
+  OTEL_EXPORTER_OTLP_PROTOCOL: {{ .Values.observability.tracing.otlpProtocol | quote }}
+  OTEL_EXPORTER_OTLP_GCP_AUTH: {{ ternary "true" "false" .Values.observability.tracing.gcpAuth | quote }}
+  OTEL_PROPAGATORS: {{ .Values.observability.tracing.propagators | quote }}
+  OTEL_TRACES_SAMPLER: {{ .Values.observability.tracing.sampler | quote }}
+  OTEL_TRACES_SAMPLER_ARG: {{ .Values.observability.tracing.samplerArg | quote }}

@@ -6,6 +6,7 @@
 x-env-common: &env-common
   DEBUG: "1"
   DJANGO_SETTINGS_MODULE: terrierconnect.settings
+  APP_ENV: development
   DB_HOST: db
   DB_PORT: "5432"
   DB_NAME: terrier-connect-dev
@@ -17,6 +18,14 @@ x-env-common: &env-common
   REDIS_URL: redis://redis:6379/0
   ELASTICSEARCH_URL: http://elasticsearch:9200
   KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  GOOGLE_CLOUD_PROJECT: ""
+  OTEL_TRACES_ENABLED: "0"
+  OTEL_EXPORTER_OTLP_ENDPOINT: ""
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_EXPORTER_OTLP_GCP_AUTH: "0"
+  OTEL_PROPAGATORS: tracecontext,baggage
+  OTEL_TRACES_SAMPLER: parentbased_traceidratio
+  OTEL_TRACES_SAMPLER_ARG: "1.0"
   SECRET_KEY: local-dev-secret-key-change-in-prod
 
 services:
@@ -56,6 +65,17 @@ services:
       DJANGO_API_URL: http://server:8000
       CORS_ORIGIN: http://localhost:3002,http://localhost:4000
       NODE_ENV: development
+      APP_ENV: development
+      GOOGLE_CLOUD_PROJECT: ""
+      OTEL_TRACES_ENABLED: "0"
+      OTEL_EXPORTER_OTLP_ENDPOINT: ""
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_EXPORTER_OTLP_GCP_AUTH: "0"
+      OTEL_PROPAGATORS: tracecontext,baggage
+      OTEL_TRACES_SAMPLER: parentbased_traceidratio
+      OTEL_TRACES_SAMPLER_ARG: "1.0"
+      SERVICE_NAME: terrier-connect-gateway
+      SERVICE_VERSION: local-dev
     depends_on:
       - server
     restart: unless-stopped
@@ -74,6 +94,8 @@ services:
       - ./server/.env
     environment:
       <<: *env-common
+      SERVICE_NAME: terrier-connect-server
+      SERVICE_VERSION: local-dev
     volumes:
       - ./server:/app
       - media_data:/app/media

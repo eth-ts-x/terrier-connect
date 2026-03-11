@@ -83,11 +83,15 @@ steps:
             tag: ${BUILD_ID}
           corsOrigin: https://${_DOMAIN_NAME},https://www.${_DOMAIN_NAME}
         appConfig:
+          APP_ENV: production
+          GOOGLE_CLOUD_PROJECT: ${PROJECT_ID}
           ALLOWED_HOSTS: ${_DOMAIN_NAME},www.${_DOMAIN_NAME},localhost,127.0.0.1
           CASSANDRA_HOSTS: ${_CASSANDRA_HOSTS}
           REDIS_URL: ${_REDIS_URL}
           ELASTICSEARCH_URL: ${_ELASTICSEARCH_URL}
           KAFKA_BOOTSTRAP_SERVERS: ${_KAFKA_BOOTSTRAP_SERVERS}
+          KAFKA_CONNECT_URL: ${_KAFKA_CONNECT_URL}
+          KAFKA_CONNECT_DLQ_TOPICS: ${_KAFKA_CONNECT_DLQ_TOPICS}
           PROJECTION_EVENTS_ENABLED: '${_PROJECTION_EVENTS_ENABLED}'
           GOOGLE_OAUTH_CALLBACK_URL: https://${_DOMAIN_NAME}/auth/google/callback
           GS_PROJECT_ID: ${PROJECT_ID}
@@ -164,6 +168,7 @@ substitutions:
   _KAFKA_BOOTSTRAP_SERVERS: terrier-kafka.terrier-platform.svc.cluster.local:9092
   _ENABLE_DEBEZIUM_CONNECTOR_REGISTRATION: 'false'
   _KAFKA_CONNECT_URL: http://terrier-kafka-connect.terrier-platform.svc.cluster.local:8083
+  _KAFKA_CONNECT_DLQ_TOPICS: dlq-elasticsearch-posts
   _DEBEZIUM_DB_HOST: ''
   _DEBEZIUM_DB_PORT: '5432'
   _DEBEZIUM_DB_NAME: terrier-connect-prod
