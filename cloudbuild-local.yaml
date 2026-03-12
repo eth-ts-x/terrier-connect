@@ -146,10 +146,13 @@ steps:
               $${DEBEZIUM_DB_PASSWORD}
         EOF
         fi
-        helm lint /workspace/helm/terrier-connect -f /workspace/helm/terrier-connect/ci-values.generated.yaml
+        helm lint /workspace/helm/terrier-connect \
+          -f /workspace/helm/terrier-connect/values-production.yaml \
+          -f /workspace/helm/terrier-connect/ci-values.generated.yaml
         helm upgrade --install ${_HELM_RELEASE_NAME} /workspace/helm/terrier-connect \
           --namespace ${_K8S_NAMESPACE} \
           --create-namespace \
+          -f /workspace/helm/terrier-connect/values-production.yaml \
           -f /workspace/helm/terrier-connect/ci-values.generated.yaml \
           --wait \
           --timeout 20m
